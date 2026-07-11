@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gdm-flow"
+version = "0.3.1"
+
+description = "Power flow utilities for grid-data-models distribution systems"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [
+  { name = "NLR Distribution Suite" }
+]
+dependencies = [
+  "numpy>=1.24",
+  "grid-data-models>=2.3.7",
+  "typer>=0.9",
+  "rich>=13.0",
+  "scipy>=1.10"
+]
+
+[project.scripts]
+gdm-flow = "gdm_flow.cli:main"
+gdm-flow-export = "gdm_flow.export_cli:main"
+gdm-flow-mcp-server = "gdm_flow.mcp.server:main"
+
+[project.optional-dependencies]
+
+plotting = ["plotly>=5.0"]
+mcp = ["mcp>=1.0.0"]
+opendss = ["opendssdirect.py>=0.9"]
+dev = [
+  "pytest>=8.0",
+  "pytest-cov>=5.0",
+  "pre-commit>=3.7",
+  "ruff>=0.6",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
