@@ -2514,6 +2514,81 @@ def _export_html(
     )
 
 
+# ── fix command ───────────────────────────────────────────────────────────
+
+
+@app.command("fix")
+def fix_command(
+    model: Path = typer.Argument(..., help="Path to GDM DistributionSystem JSON file"),
+    output: Path = typer.Option(
+        None, "--output", "-o", help="Output path for fixed model JSON. Defaults to <model>_fixed.json"
+    ),
+    max_iter: int = typer.Option(10, "--max-iter", "-n", help="Maximum fix iterations"),
+    solver: Solver = typer.Option(
+        Solver.ldf, "--solver", "-s", help="Solver for violation detection"
+    ),
+    vm_min_pu: float = typer.Option(0.95, "--vm-min", help="Minimum voltage in per-unit"),
+    vm_max_pu: float = typer.Option(1.05, "--vm-max", help="Maximum voltage in per-unit"),
+):
+    """Fix voltage and loading violations by iteratively applying remediation strategies."""
+    from .fix import fix_violations, detect_violations
+
+    system = _load_system(model)
+
+    solver_name = {"ac": "ac", "pf": "ac", "dc": "ldf", "ldf": "ldf"}[solver.value]
+
+    with console.status("[cyan]Running violation fix loop…"):
+        result = fix_violations(
+            system,
+            max_iterations=max_iter,
+            solver=solver_name,
+            vm_min_pu=vm_min_pu,
+            vm_max_pu=vm_max_pu,
+        )
+
+    # Print iteration summary table
+    if result.iterations:
+        tbl = Table(title="Fix Iterations", border_style="cyan")
+        tbl.add_column("#", justify="right")
+        tbl.add_column("Voltage Violations", justify="right")
+        tbl.add_column("Loading Violations", justify="right")
+        tbl.add_column("Actions", justify="right")
+        for it in result.iterations:
+            tbl.add_row(
+                str(it.iteration),
+                str(it.voltage_violations),
+                str(it.loading_violations),
+                str(len(it.actions)),
+            )
+        console.print()
+        console.print(tbl)
+        console.print()
+
+    # Print result
+    style = "green" if result.success else "yellow"
+    console.print(
+        Panel(
+            f"[{style}]{result.message}[/]\n\n"
+            f"Initial: {result.initial_voltage_violations} voltage + "
+            f"{result.initial_loading_violations} loading violations\n"
+            f"Final:   {result.final_voltage_violations} voltage + "
+            f"{result.final_loading_violations} loading violations\n"
+            f"Actions: {result.total_actions}",
+            border_style=style,
+            title="Fix Result",
+        )
+    )
+
+    # Export fixed model
+    if result.total_actions > 0:
+        out_path = output or model.with_stem(model.stem + "_fixed")
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        system.to_json(out_path)
+        console.print(
+            f"\n[green]Fixed model written to [bold]{out_path}[/][/]"
+        )
+
+
 # ── entry point ──────────────────────────────────────────────────────────
 
 

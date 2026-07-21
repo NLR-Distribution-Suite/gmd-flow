@@ -55,6 +55,12 @@ from .multiperiod import (
     solve_multiperiod_lindistflow,
 )
 from .dashboard import generate_ts_dashboard
+from .fix import (
+    FixResult,
+    ViolationReport,
+    detect_violations,
+    fix_violations,
+)
 
 __all__ = [
     "YBusResult",
@@ -99,4 +105,8 @@ __all__ = [
     "solve_multiperiod_dc_opf",
     "solve_multiperiod_lindistflow",
     "generate_ts_dashboard",
+    "detect_violations",
+    "fix_violations",
+    "FixResult",
+    "ViolationReport",
 ]

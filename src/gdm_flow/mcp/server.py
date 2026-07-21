@@ -559,6 +559,37 @@ async def list_tools() -> list[Tool]:
                 "required": ["symbol_name"],
             },
         ),
+        Tool(
+            name="opf_fix_violations",
+            description="Detect and fix voltage/loading violations in a GDM distribution system model iteratively.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "system_path": {
+                        "type": "string",
+                        "description": "Path to system JSON file",
+                    },
+                    "model_ref": {
+                        "type": "object",
+                        "description": "Optional model reference ({model_id/version} or direct stored_path/path)",
+                    },
+                    "output_path": {
+                        "type": "string",
+                        "description": "Output path for the fixed model JSON. If empty, appends '_fixed' to input filename.",
+                    },
+                    "max_iterations": {"type": "integer", "default": 10},
+                    "solver": {
+                        "type": "string",
+                        "enum": ["ldf", "ac"],
+                        "default": "ldf",
+                        "description": "Solver for violation detection (ldf=LinDistFlow, ac=AC OPF)",
+                    },
+                    "vm_min_pu": {"type": "number", "default": 0.95},
+                    "vm_max_pu": {"type": "number", "default": 1.05},
+                },
+                "required": [],
+            },
+        ),
     ]
 
 
@@ -574,6 +605,7 @@ _TOOL_HANDLERS: dict[str, Any] = {
     "get_opf_documentation_page": lambda args: _handle_get_opf_documentation_page(args),
     "list_opf_api_symbols": lambda args: _handle_list_opf_api_symbols(args),
     "get_opf_api_reference": lambda args: _handle_get_opf_api_reference(args),
+    "opf_fix_violations": lambda args: _handle_fix_violations(args),
 }
 
 
@@ -816,6 +848,52 @@ async def _handle_list_opf_api_symbols(args: dict[str, Any]) -> dict[str, Any]:
 async def _handle_get_opf_api_reference(args: dict[str, Any]) -> dict[str, Any]:
     symbol_name = str(args["symbol_name"]).strip()
     return _api_reference_for_symbol(symbol_name)
+
+
+async def _handle_fix_violations(args: dict[str, Any]) -> dict[str, Any]:
+    system_path = _get_system_path_arg(args)
+    system = _load_system(system_path)
+
+    from ..fix import fix_violations
+
+    solver = args.get("solver", "ldf")
+    max_iterations = int(args.get("max_iterations", 10))
+    vm_min_pu = float(args.get("vm_min_pu", 0.95))
+    vm_max_pu = float(args.get("vm_max_pu", 1.05))
+
+    result = fix_violations(
+        system,
+        max_iterations=max_iterations,
+        solver=solver,
+        vm_min_pu=vm_min_pu,
+        vm_max_pu=vm_max_pu,
+    )
+
+    # Export fixed model if any actions were taken
+    output_path = args.get("output_path", "")
+    exported_path = None
+    if result.total_actions > 0:
+        from pathlib import Path
+
+        if not output_path:
+            p = Path(system_path)
+            output_path = str(p.with_stem(p.stem + "_fixed"))
+        out = Path(output_path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        system.to_json(out)
+        exported_path = str(out)
+
+    return {
+        "success": result.success,
+        "message": result.message,
+        "initial_voltage_violations": result.initial_voltage_violations,
+        "initial_loading_violations": result.initial_loading_violations,
+        "final_voltage_violations": result.final_voltage_violations,
+        "final_loading_violations": result.final_loading_violations,
+        "total_actions": result.total_actions,
+        "iterations": len(result.iterations),
+        "output_path": exported_path,
+    }
 
 
 def _run_server(
