@@ -1,0 +1,59 @@
+version: 1
+
+project:
+  title: GDM-Flow
+  subtitle: Power Flow & Optimal Power Flow for Distribution Systems
+  authors:
+    - name: NLR Distribution Suite
+  github: NLR-Distribution-Suite/gdm_flow
+  license:
+    code: MIT
+  keywords:
+    - power systems
+    - optimal power flow
+    - distribution systems
+    - grid-data-models
+  toc:
+    - file: intro.md
+    - file: new_features.ipynb
+    - title: Getting Started
+      children:
+        - file: installation.md
+        - file: quickstart.ipynb
+    - title: Solvers
+      children:
+        - file: solvers/overview.md
+        - file: solvers/ybus.md
+        - file: solvers/ac_opf.md
+        - file: solvers/ac_pf.md
+        - file: solvers/dc_opf.md
+        - file: solvers/lindistflow.md
+    - title: User Guide
+      children:
+        - file: guide/cli.md
+        - file: guide/time_series.md
+        - file: guide/plotting.md
+        - file: guide/sqlite_export.md
+        - file: guide/comparison.ipynb
+    - title: MCP
+      children:
+        - file: mcp/overview.md
+        - file: mcp/tool_reference.md
+    - title: API Reference
+      children:
+        - file: api/ybus.md
+        - file: api/ac_opf.md
+        - file: api/ac_pf.md
+        - file: api/dc_opf.md
+        - file: api/lindistflow.md
+        - file: api/sqlite_export.md
+        - file: api/time_series.md
+        - file: api/multiperiod.md
+
+site:
+  options:
+    logo: logo.svg
+    favicon: favicon.svg
+    logo_text: GDM-Flow
+    folders: true
+  template: book-theme
