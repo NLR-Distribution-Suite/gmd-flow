@@ -209,17 +209,53 @@ class AddCapacitorStrategy(FixStrategy):
 
 
 class ResizeConductorStrategy(FixStrategy):
-    """Resize branch conductors to fix loading violations."""
+    """Resize branch conductors to fix loading and undervoltage violations."""
 
-    def __init__(self, *, scale_factor: float = 1.5):
+    def __init__(self, *, scale_factor: float = 1.5, impedance_reduction_factor: float = 0.9):
         self._scale_factor = scale_factor
+        self._impedance_reduction_factor = impedance_reduction_factor
 
     @property
     def name(self) -> str:
         return "resize_conductor"
 
     def can_fix(self, report: "ViolationReport") -> bool:
-        return len(report.loading_violations) > 0
+        return len(report.loading_violations) > 0 or any(
+            v.kind == "undervoltage" for v in report.voltage_violations
+        )
+
+    def _scale_equipment_impedance(self, equipment) -> list[str]:
+        """Reduce impedance-like fields on branch equipment when present."""
+        changed: list[str] = []
+        factor = self._impedance_reduction_factor
+
+        for attr in ("r_matrix", "x_matrix", "impedance_matrix", "resistance", "reactance"):
+            if not hasattr(equipment, attr):
+                continue
+            value = getattr(equipment, attr)
+            if value is None:
+                continue
+            try:
+                setattr(equipment, attr, value * factor)
+                changed.append(attr)
+            except Exception:
+                continue
+
+        if hasattr(equipment, "conductors"):
+            for cond in equipment.conductors:
+                for attr in ("r_matrix", "x_matrix", "impedance_matrix", "resistance", "reactance"):
+                    if not hasattr(cond, attr):
+                        continue
+                    value = getattr(cond, attr)
+                    if value is None:
+                        continue
+                    try:
+                        setattr(cond, attr, value * factor)
+                        changed.append(f"conductors.{attr}")
+                    except Exception:
+                        continue
+
+        return changed
 
     def apply(
         self, system: DistributionSystem, report: "ViolationReport"
@@ -227,21 +263,47 @@ class ResizeConductorStrategy(FixStrategy):
         actions: list[FixAction] = []
         resized: set[str] = set()
 
-        for lv in report.loading_violations:
-            if lv.branch_name in resized:
+        # Build quick lookup for all branch components.
+        all_branches: dict[str, DistributionBranchBase] = {}
+        for b in system.get_components(DistributionBranchBase):
+            all_branches[b.name] = b
+
+        target_branch_names: set[str] = {lv.branch_name for lv in report.loading_violations}
+
+        # Undervoltage can often be addressed by reducing feeder impedance.
+        undervoltage_buses = {
+            vv.bus_name for vv in report.voltage_violations if getattr(vv, "kind", None) == "undervoltage"
+        }
+        if undervoltage_buses:
+            for branch in all_branches.values():
+                bus_names = {bus.name for bus in branch.buses}
+                if bus_names & undervoltage_buses:
+                    target_branch_names.add(branch.name)
+
+        for branch_name in target_branch_names:
+            if branch_name in resized:
                 continue
 
-            # Find the branch component
-            branch = None
-            for b in system.get_components(DistributionBranchBase):
-                if b.name == lv.branch_name:
-                    branch = b
-                    break
-
+            branch = all_branches.get(branch_name)
             if branch is None:
                 continue
 
             equipment = branch.equipment
+
+            changed_fields = self._scale_equipment_impedance(equipment)
+            if changed_fields:
+                actions.append(
+                    FixAction(
+                        strategy=self.name,
+                        component_name=branch.name,
+                        description=(
+                            f"Reduced branch impedance on {branch.name}: "
+                            f"fields={sorted(set(changed_fields))} scaled by {self._impedance_reduction_factor:.3f}x"
+                        ),
+                    )
+                )
+                resized.add(branch_name)
+                continue
 
             if hasattr(equipment, "ampacity"):
                 old_amp = float(equipment.ampacity.to("ampere").magnitude)
@@ -259,7 +321,7 @@ class ResizeConductorStrategy(FixStrategy):
                         ),
                     )
                 )
-                resized.add(lv.branch_name)
+                resized.add(branch_name)
             elif hasattr(equipment, "conductors"):
                 for cond in equipment.conductors:
                     if hasattr(cond, "ampacity"):
@@ -278,7 +340,7 @@ class ResizeConductorStrategy(FixStrategy):
                         ),
                     )
                 )
-                resized.add(lv.branch_name)
+                resized.add(branch_name)
 
         return actions
 
