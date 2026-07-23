@@ -590,10 +590,34 @@ async def list_tools() -> list[Tool]:
                 "required": [],
             },
         ),
+        Tool(
+            name="scale_loads",
+            description=(
+                "Scale every load's real/reactive power by a factor and write the "
+                "updated system JSON (use before a power-flow run to model higher demand)."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "system_path": {"type": "string", "description": "Path to system JSON file"},
+                    "load_scale": {
+                        "type": "number",
+                        "description": "Multiplier applied to every load's power",
+                        "default": 1.0,
+                    },
+                    "output_path": {
+                        "type": "string",
+                        "description": "Where to write the scaled system JSON (defaults to system_path)",
+                    },
+                },
+                "required": ["load_scale"],
+            },
+        ),
     ]
 
 
 _TOOL_HANDLERS: dict[str, Any] = {
+    "scale_loads": lambda args: _handle_scale_loads(args),
     "opf_calculate_ybus": lambda args: _handle_calculate_ybus(args),
     "opf_run_ac": lambda args: _handle_run_ac(args),
     "opf_run_dc": lambda args: _handle_run_dc(args),
@@ -848,6 +872,58 @@ async def _handle_list_opf_api_symbols(args: dict[str, Any]) -> dict[str, Any]:
 async def _handle_get_opf_api_reference(args: dict[str, Any]) -> dict[str, Any]:
     symbol_name = str(args["symbol_name"]).strip()
     return _api_reference_for_symbol(symbol_name)
+
+
+async def _handle_scale_loads(args: dict[str, Any]) -> dict[str, Any]:
+    """Scale every load's power by ``load_scale`` and write the updated system."""
+    from pathlib import Path
+
+    from gdm.distribution.components import DistributionLoad
+
+    system_path = _get_system_path_arg(args)
+    load_scale = float(args.get("load_scale", 1.0))
+    output_path = args.get("output_path") or system_path
+
+    system = _load_system(system_path)
+
+    def _total_kw(sys: Any) -> float:
+        total = 0.0
+        for load in sys.get_components(DistributionLoad):
+            for phase_load in load.equipment.phase_loads:
+                total += phase_load.real_power.to("kilowatt").magnitude
+        return total
+
+    before_kw = _total_kw(system)
+
+    scaled_equipment: set[Any] = set()
+    n_loads = 0
+    for load in system.get_components(DistributionLoad):
+        n_loads += 1
+        equipment = load.equipment
+        # Equipment can be shared across loads; scale each unique one once.
+        if equipment.uuid in scaled_equipment:
+            continue
+        scaled_equipment.add(equipment.uuid)
+        for phase_load in equipment.phase_loads:
+            phase_load.real_power = phase_load.real_power * load_scale
+            phase_load.reactive_power = phase_load.reactive_power * load_scale
+
+    after_kw = _total_kw(system)
+
+    out = Path(output_path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    if out.exists():
+        out.unlink()
+    system.to_json(out)
+
+    return {
+        "success": True,
+        "load_scale": load_scale,
+        "num_loads": n_loads,
+        "total_load_kw_before": round(before_kw, 3),
+        "total_load_kw_after": round(after_kw, 3),
+        "output_path": str(out),
+    }
 
 
 async def _handle_fix_violations(args: dict[str, Any]) -> dict[str, Any]:
