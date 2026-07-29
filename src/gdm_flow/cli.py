@@ -11,21 +11,19 @@ Usage:
 from __future__ import annotations
 
 import math
+import sqlite3
 import time
 from enum import Enum
 from pathlib import Path
-import sqlite3
-from typing import Optional
 
 import numpy as np
 import typer
-from rich.console import Console
-from rich.panel import Panel
-from rich.table import Table
-
 from gdm.distribution import DistributionSystem
 from gdm.distribution.components import DistributionBus
 from gdm.distribution.enums import Phase
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
 
 from ._utils import _phase_name
 from .ac_opf import build_regulator_voltage_limits_from_components
@@ -62,10 +60,11 @@ def _load_system(model: Path) -> DistributionSystem:
 
     # Auto-aggregate parallel single-phase transformers/regulators
     from collections import defaultdict
+
+    from gdm.distribution.components.distribution_regulator import DistributionRegulator
     from gdm.distribution.components.distribution_transformer import (
         DistributionTransformer,
     )
-    from gdm.distribution.components.distribution_regulator import DistributionRegulator
 
     needs_aggregation = False
     for comp_type, label in [
@@ -600,7 +599,7 @@ def _read_db_schema(
         conn.close()
 
 
-def _voltage_pu_stats(result_dict: dict, system: "DistributionSystem") -> dict | None:
+def _voltage_pu_stats(result_dict: dict, system: DistributionSystem) -> dict | None:
     """Compute per-unit voltage stats from a solver result dict.
 
     Returns dict with v_min_pu, v_max_pu, v_mean_pu, n_under_095 or None.
@@ -729,8 +728,9 @@ def _run_dc(system: DistributionSystem) -> dict:
 
 
 def _run_ldf(system: DistributionSystem) -> dict:
-    from .lindistflow import solve_lindistflow
     import networkx as nx
+
+    from .lindistflow import solve_lindistflow
 
     t0 = time.perf_counter()
     try:
@@ -967,7 +967,7 @@ def run(
 @app.command()
 def compare(
     model: Path = typer.Argument(..., help="Path to GDM distribution system JSON"),
-    output: Optional[Path] = typer.Option(
+    output: Path | None = typer.Option(
         None, "--output", "-o", help="Export comparison to HTML (requires plotly)"
     ),
 ):
@@ -1375,7 +1375,7 @@ def export(
     if (
         dc_result is not None
         and hasattr(dc_result, "theta_rad")
-        and isinstance(getattr(dc_result, "theta_rad"), dict)
+        and isinstance(dc_result.theta_rad, dict)
     ):
         (
             dc_branch_loading_va,
@@ -1758,7 +1758,7 @@ def qsts(
         None, "--end", help="Last timestep index (default: all available)"
     ),
     step: int = typer.Option(1, "--step", help="Timestep stride"),
-    db: Optional[Path] = typer.Option(
+    db: Path | None = typer.Option(
         None, "--db", help="SQLite database path for streaming results"
     ),
 ):
@@ -1861,10 +1861,10 @@ def multiperiod(
         None, "--end", help="Last timestep index (default: 96 = 24h at 15min)"
     ),
     step: int = typer.Option(1, "--step", help="Timestep stride"),
-    ramp: Optional[float] = typer.Option(
+    ramp: float | None = typer.Option(
         None, "--ramp", help="Generator ramp limit in watts (DC OPF only)"
     ),
-    db: Optional[Path] = typer.Option(
+    db: Path | None = typer.Option(
         None, "--db", help="SQLite database path for results"
     ),
 ):
@@ -1986,10 +1986,10 @@ def plot_ts(
     db: Path = typer.Argument(
         ..., help="SQLite database with QSTS/multi-period results"
     ),
-    run_id: Optional[str] = typer.Option(
+    run_id: str | None = typer.Option(
         None, "--run-id", help="Specific run ID (default: latest)"
     ),
-    output: Optional[Path] = typer.Option(
+    output: Path | None = typer.Option(
         None, "--output", "-o", help="Output HTML path (default: <db>_ts.html)"
     ),
 ):
@@ -2112,8 +2112,9 @@ def _export_html(
         err_console.print("[yellow]plotly not installed — skipping HTML export[/]")
         return
 
-    from .ac_opf import _build_nominal_voltage_map
     import networkx as nx
+
+    from .ac_opf import _build_nominal_voltage_map
 
     nominal_map = _build_nominal_voltage_map(system)
 
@@ -2521,17 +2522,24 @@ def _export_html(
 def fix_command(
     model: Path = typer.Argument(..., help="Path to GDM DistributionSystem JSON file"),
     output: Path = typer.Option(
-        None, "--output", "-o", help="Output path for fixed model JSON. Defaults to <model>_fixed.json"
+        None,
+        "--output",
+        "-o",
+        help="Output path for fixed model JSON. Defaults to <model>_fixed.json",
     ),
     max_iter: int = typer.Option(10, "--max-iter", "-n", help="Maximum fix iterations"),
     solver: Solver = typer.Option(
         Solver.ldf, "--solver", "-s", help="Solver for violation detection"
     ),
-    vm_min_pu: float = typer.Option(0.95, "--vm-min", help="Minimum voltage in per-unit"),
-    vm_max_pu: float = typer.Option(1.05, "--vm-max", help="Maximum voltage in per-unit"),
+    vm_min_pu: float = typer.Option(
+        0.95, "--vm-min", help="Minimum voltage in per-unit"
+    ),
+    vm_max_pu: float = typer.Option(
+        1.05, "--vm-max", help="Maximum voltage in per-unit"
+    ),
 ):
     """Fix voltage and loading violations by iteratively applying remediation strategies."""
-    from .fix import fix_violations, detect_violations
+    from .fix import fix_violations
 
     system = _load_system(model)
 
@@ -2584,9 +2592,7 @@ def fix_command(
         out_path = output or model.with_stem(model.stem + "_fixed")
         out_path.parent.mkdir(parents=True, exist_ok=True)
         system.to_json(out_path)
-        console.print(
-            f"\n[green]Fixed model written to [bold]{out_path}[/][/]"
-        )
+        console.print(f"\n[green]Fixed model written to [bold]{out_path}[/][/]")
 
 
 # ── entry point ──────────────────────────────────────────────────────────

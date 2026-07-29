@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 import logging
-import inspect
 import os
-from pathlib import Path
 import sqlite3
+from pathlib import Path
 from typing import Annotated, Any
 
 import numpy as np
@@ -17,6 +17,7 @@ from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import TextContent, Tool
 
+import gdm_flow as gdm_flow_api
 from gdm_flow import (
     build_lindistflow_net_injections_from_components,
     calculate_ybus,
@@ -25,7 +26,6 @@ from gdm_flow import (
     solve_dc_opf_from_components,
     solve_lindistflow,
 )
-import gdm_flow as gdm_flow_api
 from gdm_flow.mcp import __version__
 
 logging.basicConfig(level=logging.INFO)
@@ -255,7 +255,7 @@ def _serialize_dc_result(result: Any, include_details: bool) -> dict[str, Any]:
         "iterations": int(result.iterations),
         "slack_injection_w": float(result.slack_injection_w),
         "total_dispatch_w": dispatch_total,
-        "generator_count": int(len(result.generator_dispatch_w)),
+        "generator_count": len(result.generator_dispatch_w),
     }
     if include_details:
         payload["generator_dispatch_w"] = {
@@ -280,8 +280,8 @@ def _serialize_lindistflow_result(result: Any, include_details: bool) -> dict[st
         "source_bus": str(result.source_bus),
         "voltage_min_v": float(min(voltage_values)) if voltage_values else 0.0,
         "voltage_max_v": float(max(voltage_values)) if voltage_values else 0.0,
-        "modeled_nodes": int(len(result.voltage_v)),
-        "modeled_branches": int(len(result.p_flow_w)),
+        "modeled_nodes": len(result.voltage_v),
+        "modeled_branches": len(result.p_flow_w),
     }
     if include_details:
         payload["voltage_v"] = [
@@ -599,7 +599,10 @@ async def list_tools() -> list[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "system_path": {"type": "string", "description": "Path to system JSON file"},
+                    "system_path": {
+                        "type": "string",
+                        "description": "Path to system JSON file",
+                    },
                     "load_scale": {
                         "type": "number",
                         "description": "Multiplier applied to every load's power",

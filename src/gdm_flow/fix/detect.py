@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from typing import Dict, Tuple
 
 from gdm.distribution import DistributionSystem
 from gdm.distribution.components import DistributionBus
@@ -15,8 +14,8 @@ from gdm.distribution.enums import Phase
 
 from .._utils import _phase_name, _phase_voltage
 
-BusPhaseLabel = Tuple[str, str]
-BranchPhaseLabel = Tuple[str, str]
+BusPhaseLabel = tuple[str, str]
+BranchPhaseLabel = tuple[str, str]
 
 
 @dataclass(frozen=True)
@@ -76,9 +75,9 @@ class ViolationReport:
 
 def _nominal_voltage_map(
     system: DistributionSystem,
-) -> Dict[BusPhaseLabel, float]:
+) -> dict[BusPhaseLabel, float]:
     """Build per-bus-phase nominal voltage map in volts."""
-    result: Dict[BusPhaseLabel, float] = {}
+    result: dict[BusPhaseLabel, float] = {}
     for bus in system.get_components(DistributionBus):
         v_phase = _phase_voltage(bus.rated_voltage, bus.voltage_type)
         for p in bus.phases:
@@ -90,9 +89,9 @@ def _nominal_voltage_map(
 
 def _branch_loading_limits(
     system: DistributionSystem,
-) -> Dict[BranchPhaseLabel, float]:
+) -> dict[BranchPhaseLabel, float]:
     """Build per-branch-phase loading limit in VA from equipment ampacity and nominal voltage."""
-    limits: Dict[BranchPhaseLabel, float] = {}
+    limits: dict[BranchPhaseLabel, float] = {}
     nominal_map = _nominal_voltage_map(system)
 
     for branch in system.get_components(DistributionBranchBase):
@@ -102,7 +101,10 @@ def _branch_loading_limits(
         if hasattr(branch.equipment, "ampacity"):
             ampacity = float(branch.equipment.ampacity.to("ampere").magnitude)
         elif hasattr(branch.equipment, "conductors"):
-            amps = [float(c.ampacity.to("ampere").magnitude) for c in branch.equipment.conductors]
+            amps = [
+                float(c.ampacity.to("ampere").magnitude)
+                for c in branch.equipment.conductors
+            ]
             ampacity = min(amps) if amps else None
 
         if ampacity is None:
@@ -209,7 +211,6 @@ def detect_violations(
 
     elif solver == "ac":
         from ..ac_opf import (
-            build_regulator_voltage_limits_from_components,
             optimize_ac_power_flow_from_components,
         )
 
