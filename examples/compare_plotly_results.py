@@ -7,7 +7,9 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from gdm.distribution import DistributionSystem
-from gdm.distribution.components.base.distribution_branch_base import DistributionBranchBase
+from gdm.distribution.components.base.distribution_branch_base import (
+    DistributionBranchBase,
+)
 from gdm.distribution.enums import Phase
 from gdm_flow import (
     optimize_ac_power_flow_from_components,
@@ -33,27 +35,40 @@ def _branch_phase_resistance_ohm(branch: DistributionBranchBase, phase: str) -> 
             return 0.0
         pidx = phases.index(phase)
         length_m = float(branch.length.to("m").magnitude)
-        return float(branch.equipment.r_matrix.to("ohm/m").magnitude[pidx][pidx]) * length_m
+        return (
+            float(branch.equipment.r_matrix.to("ohm/m").magnitude[pidx][pidx])
+            * length_m
+        )
 
     if hasattr(branch, "equipment") and hasattr(branch.equipment, "pos_seq_resistance"):
         phases = [str(p.value if hasattr(p, "value") else p) for p in branch.phases]
         if phase not in phases:
             return 0.0
         length_m = float(branch.length.to("m").magnitude)
-        return float(branch.equipment.pos_seq_resistance.to("ohm/m").magnitude) * length_m
+        return (
+            float(branch.equipment.pos_seq_resistance.to("ohm/m").magnitude) * length_m
+        )
 
     return 0.0
 
 
-def _branch_phase_impedance_ohm(branch: DistributionBranchBase, phase: str) -> complex | None:
+def _branch_phase_impedance_ohm(
+    branch: DistributionBranchBase, phase: str
+) -> complex | None:
     if hasattr(branch, "equipment") and hasattr(branch.equipment, "r_matrix"):
         phases = [str(p.value if hasattr(p, "value") else p) for p in branch.phases]
         if phase not in phases:
             return None
         pidx = phases.index(phase)
         length_m = float(branch.length.to("m").magnitude)
-        r = float(branch.equipment.r_matrix.to("ohm/m").magnitude[pidx][pidx]) * length_m
-        x = float(branch.equipment.x_matrix.to("ohm/m").magnitude[pidx][pidx]) * length_m
+        r = (
+            float(branch.equipment.r_matrix.to("ohm/m").magnitude[pidx][pidx])
+            * length_m
+        )
+        x = (
+            float(branch.equipment.x_matrix.to("ohm/m").magnitude[pidx][pidx])
+            * length_m
+        )
         return complex(r, x)
 
     if hasattr(branch, "equipment") and hasattr(branch.equipment, "pos_seq_resistance"):
@@ -84,14 +99,6 @@ def main() -> None:
     system = DistributionSystem.from_json(str(model_path))
     source_bus_obj = system.get_source_bus()
     source_bus = source_bus_obj.name
-    source_phase = next(
-        (
-            (p.value if hasattr(p, "value") else str(p))
-            for p in source_bus_obj.phases
-            if p != Phase.N
-        ),
-        "A",
-    )
 
     ac = optimize_ac_power_flow_from_components(
         system,
@@ -143,13 +150,20 @@ def main() -> None:
 
     x_vm = [_label_text(label) for label in common_vm]
     ac_vm_vals = [ac_vm[label] / nominal_map[label] for label in common_vm]
-    pf_vm_vals = [pf_vm[label] / nominal_map[label] if label in pf_vm else float('nan') for label in common_vm]
-    ldf_vm_vals = [float(ldf.voltage_v[label]) / nominal_map[label] for label in common_vm]
+    pf_vm_vals = [
+        pf_vm[label] / nominal_map[label] if label in pf_vm else float("nan")
+        for label in common_vm
+    ]
+    ldf_vm_vals = [
+        float(ldf.voltage_v[label]) / nominal_map[label] for label in common_vm
+    ]
     vm_abs_diff = [abs(a - b) for a, b in zip(ac_vm_vals, ldf_vm_vals)]
 
     x_theta = [_label_text(label) for label in common_theta]
     ac_theta_vals_abs = [ac_ang_deg[label] for label in common_theta]
-    dc_theta_vals_abs = [float(np.degrees(dc.theta_rad[label])) for label in common_theta]
+    dc_theta_vals_abs = [
+        float(np.degrees(dc.theta_rad[label])) for label in common_theta
+    ]
 
     if common_theta:
         ac_ref = ac_theta_vals_abs[0]
@@ -174,7 +188,9 @@ def main() -> None:
     pf_v = pf.voltage
     pf_ybus = pf.ybus_result.ybus
     pf_s = pf_v * np.conj(pf_ybus @ pf_v)
-    pf_src_idx = [i for i, lbl in enumerate(pf.ybus_result.index_to_label) if lbl[0] == source_bus]
+    pf_src_idx = [
+        i for i, lbl in enumerate(pf.ybus_result.index_to_label) if lbl[0] == source_bus
+    ]
     pf_source_p = float(np.sum([pf_s[i].real for i in pf_src_idx]))
 
     dc_source_labels = [
@@ -266,7 +282,11 @@ def main() -> None:
             phase_name = str(phase.value if hasattr(phase, "value") else phase)
             if phase == Phase.N:
                 continue
-            if hasattr(branch, "is_closed") and i < len(branch.is_closed) and (not bool(branch.is_closed[i])):
+            if (
+                hasattr(branch, "is_closed")
+                and i < len(branch.is_closed)
+                and (not bool(branch.is_closed[i]))
+            ):
                 continue
 
             label_u = (bus_u, phase_name)
@@ -303,10 +323,18 @@ def main() -> None:
     # Wrap angle error to principal range for meaningful RMSE values.
     theta_diff_arr = np.array(_wrap_deg(theta_diff_arr.tolist()), dtype=float)
 
-    vm_rmse = float(np.sqrt(np.mean(vm_diff_arr**2))) if vm_diff_arr.size else float("nan")
+    vm_rmse = (
+        float(np.sqrt(np.mean(vm_diff_arr**2))) if vm_diff_arr.size else float("nan")
+    )
     vm_max = float(np.max(np.abs(vm_diff_arr))) if vm_diff_arr.size else float("nan")
-    theta_rmse = float(np.sqrt(np.mean(theta_diff_arr**2))) if theta_diff_arr.size else float("nan")
-    theta_max = float(np.max(np.abs(theta_diff_arr))) if theta_diff_arr.size else float("nan")
+    theta_rmse = (
+        float(np.sqrt(np.mean(theta_diff_arr**2)))
+        if theta_diff_arr.size
+        else float("nan")
+    )
+    theta_max = (
+        float(np.max(np.abs(theta_diff_arr))) if theta_diff_arr.size else float("nan")
+    )
 
     summary_metrics = {
         "AC OPF success": str(bool(ac.success)),
@@ -400,17 +428,25 @@ def main() -> None:
         col=1,
     )
     fig.add_trace(
-        go.Scatter(x=x_vm, y=pf_vm_vals, mode="lines+markers", name="AC PF |V| (pu)", line=dict(dash="dash")),
+        go.Scatter(
+            x=x_vm,
+            y=pf_vm_vals,
+            mode="lines+markers",
+            name="AC PF |V| (pu)",
+            line=dict(dash="dash"),
+        ),
         row=1,
         col=1,
     )
     fig.add_trace(
-        go.Scatter(x=x_vm, y=ldf_vm_vals, mode="lines+markers", name="LinDistFlow |V| (pu)"),
+        go.Scatter(
+            x=x_vm, y=ldf_vm_vals, mode="lines+markers", name="LinDistFlow |V| (pu)"
+        ),
         row=1,
         col=1,
     )
 
-    pf_theta_vals_abs = [pf_ang_deg.get(label, float('nan')) for label in common_theta]
+    pf_theta_vals_abs = [pf_ang_deg.get(label, float("nan")) for label in common_theta]
     if common_theta:
         pf_ref = pf_theta_vals_abs[0] if not np.isnan(pf_theta_vals_abs[0]) else 0.0
     else:
@@ -418,17 +454,27 @@ def main() -> None:
     pf_theta_vals = _wrap_deg([v - pf_ref for v in pf_theta_vals_abs])
 
     fig.add_trace(
-        go.Scatter(x=x_theta, y=ac_theta_vals, mode="lines+markers", name="AC OPF angle (deg)"),
+        go.Scatter(
+            x=x_theta, y=ac_theta_vals, mode="lines+markers", name="AC OPF angle (deg)"
+        ),
         row=2,
         col=1,
     )
     fig.add_trace(
-        go.Scatter(x=x_theta, y=pf_theta_vals, mode="lines+markers", name="AC PF angle (deg)", line=dict(dash="dash")),
+        go.Scatter(
+            x=x_theta,
+            y=pf_theta_vals,
+            mode="lines+markers",
+            name="AC PF angle (deg)",
+            line=dict(dash="dash"),
+        ),
         row=2,
         col=1,
     )
     fig.add_trace(
-        go.Scatter(x=x_theta, y=dc_theta_vals, mode="lines+markers", name="DC theta (deg)"),
+        go.Scatter(
+            x=x_theta, y=dc_theta_vals, mode="lines+markers", name="DC theta (deg)"
+        ),
         row=2,
         col=1,
     )
@@ -445,7 +491,12 @@ def main() -> None:
             y=[ac_source_p, pf_source_p, dc_source_p, ldf_source_p],
             name="Source P injection (W)",
             marker_color=["#1f77b4", "#9467bd", "#2ca02c", "#ff7f0e"],
-            text=[f"{ac_source_p:.2f}", f"{pf_source_p:.2f}", f"{dc_source_p:.2f}", f"{ldf_source_p:.2f}"],
+            text=[
+                f"{ac_source_p:.2f}",
+                f"{pf_source_p:.2f}",
+                f"{dc_source_p:.2f}",
+                f"{ldf_source_p:.2f}",
+            ],
             textposition="outside",
             cliponaxis=False,
         ),
@@ -505,7 +556,11 @@ def main() -> None:
 
     fig.add_trace(
         go.Table(
-            header=dict(values=["Reported metric", "Definition"], fill_color="#f0f0f0", align="left"),
+            header=dict(
+                values=["Reported metric", "Definition"],
+                fill_color="#f0f0f0",
+                align="left",
+            ),
             cells=dict(
                 values=[
                     [row[0] for row in semantics_rows],

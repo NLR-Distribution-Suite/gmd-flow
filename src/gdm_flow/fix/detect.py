@@ -102,7 +102,10 @@ def _branch_loading_limits(
         if hasattr(branch.equipment, "ampacity"):
             ampacity = float(branch.equipment.ampacity.to("ampere").magnitude)
         elif hasattr(branch.equipment, "conductors"):
-            amps = [float(c.ampacity.to("ampere").magnitude) for c in branch.equipment.conductors]
+            amps = [
+                float(c.ampacity.to("ampere").magnitude)
+                for c in branch.equipment.conductors
+            ]
             ampacity = min(amps) if amps else None
 
         if ampacity is None:
@@ -209,7 +212,6 @@ def detect_violations(
 
     elif solver == "ac":
         from ..ac_opf import (
-            build_regulator_voltage_limits_from_components,
             optimize_ac_power_flow_from_components,
         )
 

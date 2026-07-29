@@ -7,7 +7,7 @@ from typing import Sequence
 
 from gdm.distribution import DistributionSystem
 
-from .detect import ViolationReport, detect_violations
+from .detect import detect_violations
 from .strategies import (
     AddCapacitorStrategy,
     AdjustRegulatorTapStrategy,
@@ -102,7 +102,9 @@ def fix_violations(
     iterations: list[FixIteration] = []
 
     # Initial detection
-    report = detect_violations(system, solver=solver, vm_min_pu=vm_min_pu, vm_max_pu=vm_max_pu)
+    report = detect_violations(
+        system, solver=solver, vm_min_pu=vm_min_pu, vm_max_pu=vm_max_pu
+    )
     if not report.success:
         return FixResult(
             success=False,

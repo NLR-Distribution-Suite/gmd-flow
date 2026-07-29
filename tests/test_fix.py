@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 from pathlib import Path
 
 import pytest
@@ -16,7 +15,6 @@ from gdm_flow.fix import (
 from gdm_flow.fix.strategies import (
     AddCapacitorStrategy,
     AdjustRegulatorTapStrategy,
-    FixAction,
     ResizeConductorStrategy,
     ResizeTransformerStrategy,
 )
@@ -42,7 +40,9 @@ class TestDetectViolations:
 
     def test_tight_limits_produce_violations(self, system):
         # Use very tight voltage limits so violations appear
-        report = detect_violations(system, solver="ldf", vm_min_pu=0.999, vm_max_pu=1.001)
+        report = detect_violations(
+            system, solver="ldf", vm_min_pu=0.999, vm_max_pu=1.001
+        )
         assert report.success
         # With very tight limits on a loaded system, we expect violations
         assert report.total_violations >= 0  # May be 0 if source-only
@@ -84,9 +84,12 @@ class TestResizeConductorStrategy:
             solver="ldf",
             loading_violations=[
                 BranchLoadingViolation(
-                    branch_name="br1", phase="A",
-                    loading_va=150.0, limit_va=100.0,
-                    p_flow_w=140.0, q_flow_var=50.0,
+                    branch_name="br1",
+                    phase="A",
+                    loading_va=150.0,
+                    limit_va=100.0,
+                    p_flow_w=140.0,
+                    q_flow_var=50.0,
                 )
             ],
         )
@@ -122,9 +125,12 @@ class TestAddCapacitorStrategy:
             solver="ldf",
             voltage_violations=[
                 VoltageViolation(
-                    bus_name="bus1", phase="A",
-                    voltage_v=110.0, nominal_v=120.0,
-                    min_v=114.0, max_v=126.0,
+                    bus_name="bus1",
+                    phase="A",
+                    voltage_v=110.0,
+                    nominal_v=120.0,
+                    min_v=114.0,
+                    max_v=126.0,
                     kind="undervoltage",
                 )
             ],
@@ -140,9 +146,12 @@ class TestAddCapacitorStrategy:
             solver="ldf",
             voltage_violations=[
                 VoltageViolation(
-                    bus_name="bus1", phase="A",
-                    voltage_v=130.0, nominal_v=120.0,
-                    min_v=114.0, max_v=126.0,
+                    bus_name="bus1",
+                    phase="A",
+                    voltage_v=130.0,
+                    nominal_v=120.0,
+                    min_v=114.0,
+                    max_v=126.0,
                     kind="overvoltage",
                 )
             ],

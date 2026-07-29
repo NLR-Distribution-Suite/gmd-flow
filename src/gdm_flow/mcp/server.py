@@ -599,7 +599,10 @@ async def list_tools() -> list[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "system_path": {"type": "string", "description": "Path to system JSON file"},
+                    "system_path": {
+                        "type": "string",
+                        "description": "Path to system JSON file",
+                    },
                     "load_scale": {
                         "type": "number",
                         "description": "Multiplier applied to every load's power",

@@ -2521,17 +2521,24 @@ def _export_html(
 def fix_command(
     model: Path = typer.Argument(..., help="Path to GDM DistributionSystem JSON file"),
     output: Path = typer.Option(
-        None, "--output", "-o", help="Output path for fixed model JSON. Defaults to <model>_fixed.json"
+        None,
+        "--output",
+        "-o",
+        help="Output path for fixed model JSON. Defaults to <model>_fixed.json",
     ),
     max_iter: int = typer.Option(10, "--max-iter", "-n", help="Maximum fix iterations"),
     solver: Solver = typer.Option(
         Solver.ldf, "--solver", "-s", help="Solver for violation detection"
     ),
-    vm_min_pu: float = typer.Option(0.95, "--vm-min", help="Minimum voltage in per-unit"),
-    vm_max_pu: float = typer.Option(1.05, "--vm-max", help="Maximum voltage in per-unit"),
+    vm_min_pu: float = typer.Option(
+        0.95, "--vm-min", help="Minimum voltage in per-unit"
+    ),
+    vm_max_pu: float = typer.Option(
+        1.05, "--vm-max", help="Maximum voltage in per-unit"
+    ),
 ):
     """Fix voltage and loading violations by iteratively applying remediation strategies."""
-    from .fix import fix_violations, detect_violations
+    from .fix import fix_violations
 
     system = _load_system(model)
 
@@ -2584,9 +2591,7 @@ def fix_command(
         out_path = output or model.with_stem(model.stem + "_fixed")
         out_path.parent.mkdir(parents=True, exist_ok=True)
         system.to_json(out_path)
-        console.print(
-            f"\n[green]Fixed model written to [bold]{out_path}[/][/]"
-        )
+        console.print(f"\n[green]Fixed model written to [bold]{out_path}[/][/]")
 
 
 # ── entry point ──────────────────────────────────────────────────────────
