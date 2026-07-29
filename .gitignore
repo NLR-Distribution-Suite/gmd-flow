@@ -5,6 +5,7 @@ dist/
 build/
 *.db
 !examples/models/*_time_series/*.db
+!tests/data/**/*.db
 *.sqlite
 docs/_build/
 .ipynb_checkpoints/

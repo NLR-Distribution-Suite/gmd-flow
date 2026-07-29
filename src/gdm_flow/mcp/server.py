@@ -14,8 +14,15 @@ import numpy as np
 import typer
 from gdm.distribution import DistributionSystem
 from mcp.server import Server
-from mcp.server.stdio import stdio_server
-from mcp.types import TextContent, Tool
+from mcp import stdio_server
+from mcp_types import (
+    CallToolRequest,
+    CallToolResult,
+    ListToolsRequest,
+    ListToolsResult,
+    TextContent,
+    Tool,
+)
 
 from gdm_flow import (
     build_lindistflow_net_injections_from_components,
@@ -299,324 +306,352 @@ def _serialize_lindistflow_result(result: Any, include_details: bool) -> dict[st
     return payload
 
 
-@app.list_tools()
-async def list_tools() -> list[Tool]:
+async def _handle_list_tools(params: ListToolsRequest) -> ListToolsResult:
     """List available GDM-Flow MCP tools."""
-    return [
-        # Solver and matrix tools
-        Tool(
-            name="opf_calculate_ybus",
-            description="Build phase-domain Y-bus matrix metadata for a DistributionSystem JSON model.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "system_path": {
-                        "type": "string",
-                        "description": "Path to system JSON file",
+    return ListToolsResult(
+        tools=[
+            # Solver and matrix tools
+            Tool(
+                name="opf_calculate_ybus",
+                description="Build phase-domain Y-bus matrix metadata for a DistributionSystem JSON model.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "system_path": {
+                            "type": "string",
+                            "description": "Path to system JSON file",
+                        },
+                        "model_ref": {
+                            "type": "object",
+                            "description": "Optional model reference ({model_id/version} or direct stored_path/path)",
+                        },
+                        "include_neutral": {"type": "boolean", "default": False},
+                        "include_shunt": {"type": "boolean", "default": False},
+                        "include_transformers": {"type": "boolean", "default": True},
+                        "include_open_switches": {"type": "boolean", "default": False},
+                        "convert_geometry_to_matrix": {
+                            "type": "boolean",
+                            "default": True,
+                        },
+                        "sparse": {"type": "boolean", "default": True},
+                        "include_matrix": {
+                            "type": "boolean",
+                            "description": "Include a top-left matrix preview in the result",
+                            "default": False,
+                        },
+                        "matrix_preview_limit": {
+                            "type": "integer",
+                            "description": "Preview matrix side length when include_matrix=true",
+                            "default": 10,
+                        },
                     },
-                    "model_ref": {
-                        "type": "object",
-                        "description": "Optional model reference ({model_id/version} or direct stored_path/path)",
-                    },
-                    "include_neutral": {"type": "boolean", "default": False},
-                    "include_shunt": {"type": "boolean", "default": False},
-                    "include_transformers": {"type": "boolean", "default": True},
-                    "include_open_switches": {"type": "boolean", "default": False},
-                    "convert_geometry_to_matrix": {"type": "boolean", "default": True},
-                    "sparse": {"type": "boolean", "default": True},
-                    "include_matrix": {
-                        "type": "boolean",
-                        "description": "Include a top-left matrix preview in the result",
-                        "default": False,
-                    },
-                    "matrix_preview_limit": {
-                        "type": "integer",
-                        "description": "Preview matrix side length when include_matrix=true",
-                        "default": 10,
-                    },
+                    "required": [],
                 },
-                "required": [],
-            },
-        ),
-        Tool(
-            name="opf_run_ac",
-            description="Run AC OPF directly from system components.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "system_path": {
-                        "type": "string",
-                        "description": "Path to system JSON file",
-                    },
-                    "model_ref": {
-                        "type": "object",
-                        "description": "Optional model reference ({model_id/version} or direct stored_path/path)",
-                    },
-                    "include_loads": {"type": "boolean", "default": True},
-                    "include_solar": {"type": "boolean", "default": True},
-                    "include_battery": {"type": "boolean", "default": False},
-                    "include_capacitor": {"type": "boolean", "default": True},
-                    "include_regulator_targets": {"type": "boolean", "default": True},
-                    "include_regulator_limits": {"type": "boolean", "default": True},
-                    "include_neutral": {"type": "boolean", "default": False},
-                    "include_shunt": {"type": "boolean", "default": False},
-                    "convert_geometry_to_matrix": {"type": "boolean", "default": True},
-                    "vm_min_pu": {"type": "number", "default": 0.95},
-                    "vm_max_pu": {"type": "number", "default": 1.05},
-                    "max_nfev": {"type": "integer", "default": 300},
-                    "include_details": {
-                        "type": "boolean",
-                        "description": "Include per-node solved values",
-                        "default": False,
-                    },
-                },
-                "required": [],
-            },
-        ),
-        Tool(
-            name="opf_run_dc",
-            description="Run DC OPF directly from system components.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "system_path": {
-                        "type": "string",
-                        "description": "Path to system JSON file",
-                    },
-                    "model_ref": {
-                        "type": "object",
-                        "description": "Optional model reference ({model_id/version} or direct stored_path/path)",
-                    },
-                    "include_solar_generators": {"type": "boolean", "default": True},
-                    "include_battery_generators": {"type": "boolean", "default": True},
-                    "include_loads": {"type": "boolean", "default": True},
-                    "include_slack_generator": {"type": "boolean", "default": True},
-                    "slack_cost_linear": {"type": "number", "default": 50.0},
-                    "include_neutral": {"type": "boolean", "default": False},
-                    "include_shunt": {"type": "boolean", "default": False},
-                    "convert_geometry_to_matrix": {"type": "boolean", "default": True},
-                    "theta_min_rad": {"type": "number", "default": -1.5707963267948966},
-                    "theta_max_rad": {"type": "number", "default": 1.5707963267948966},
-                    "theta_penalty": {"type": "number", "default": 1e-6},
-                    "maxiter": {"type": "integer", "default": 500},
-                    "include_details": {
-                        "type": "boolean",
-                        "description": "Include generator dispatch and nodal details",
-                        "default": False,
-                    },
-                },
-                "required": [],
-            },
-        ),
-        Tool(
-            name="opf_run_lindistflow",
-            description="Run LinDistFlow from component-derived net injections.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "system_path": {
-                        "type": "string",
-                        "description": "Path to system JSON file",
-                    },
-                    "model_ref": {
-                        "type": "object",
-                        "description": "Optional model reference ({model_id/version} or direct stored_path/path)",
-                    },
-                    "include_loads": {"type": "boolean", "default": True},
-                    "include_solar": {"type": "boolean", "default": True},
-                    "include_battery": {"type": "boolean", "default": True},
-                    "include_capacitor": {"type": "boolean", "default": True},
-                    "include_neutral": {"type": "boolean", "default": False},
-                    "include_open_switches": {"type": "boolean", "default": False},
-                    "include_details": {
-                        "type": "boolean",
-                        "description": "Include per-node and per-branch outputs",
-                        "default": False,
-                    },
-                },
-                "required": [],
-            },
-        ),
-        Tool(
-            name="opf_compare_solvers",
-            description="Run AC OPF, DC OPF, and LinDistFlow and return a side-by-side summary.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "system_path": {
-                        "type": "string",
-                        "description": "Path to system JSON file",
-                    },
-                    "model_ref": {
-                        "type": "object",
-                        "description": "Optional model reference ({model_id/version} or direct stored_path/path)",
-                    },
-                    "include_details": {
-                        "type": "boolean",
-                        "description": "Include full per-solver details in addition to summary",
-                        "default": False,
-                    },
-                },
-                "required": [],
-            },
-        ),
-        Tool(
-            name="opf_export_sqlite",
-            description="Run selected OPF solvers and export results to a SQLite database.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "system_path": {
-                        "type": "string",
-                        "description": "Path to system JSON file",
-                    },
-                    "model_ref": {
-                        "type": "object",
-                        "description": "Optional model reference ({model_id/version} or direct stored_path/path)",
-                    },
-                    "db_path": {
-                        "type": "string",
-                        "description": "Output SQLite database path",
-                    },
-                    "run_ac": {"type": "boolean", "default": True},
-                    "run_dc": {"type": "boolean", "default": True},
-                    "run_lindistflow": {"type": "boolean", "default": True},
-                },
-                "required": ["db_path"],
-            },
-        ),
-        # Documentation and knowledge tools
-        Tool(
-            name="list_opf_documentation",
-            description="List available GDM-Flow documentation files (docs/*.md, docs/*.ipynb).",
-            inputSchema={
-                "type": "object",
-                "properties": {},
-            },
-        ),
-        Tool(
-            name="search_opf_documentation",
-            description="Search GDM-Flow documentation and return relevant snippets.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "Search term or phrase",
-                    },
-                    "max_results": {
-                        "type": "integer",
-                        "description": "Maximum number of matches to return",
-                        "default": 5,
-                    },
-                },
-                "required": ["query"],
-            },
-        ),
-        Tool(
-            name="get_opf_documentation_page",
-            description="Read a specific documentation page by relative path from docs/.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "doc_path": {
-                        "type": "string",
-                        "description": "Path relative to docs/ (e.g., solvers/ac_opf.md)",
-                    },
-                    "start_line": {
-                        "type": "integer",
-                        "description": "1-based start line",
-                        "default": 1,
-                    },
-                    "max_lines": {
-                        "type": "integer",
-                        "description": "Maximum number of lines to return",
-                        "default": 160,
-                    },
-                },
-                "required": ["doc_path"],
-            },
-        ),
-        Tool(
-            name="list_opf_api_symbols",
-            description="List public API symbols exposed by gdm_flow.__all__.",
-            inputSchema={
-                "type": "object",
-                "properties": {},
-            },
-        ),
-        Tool(
-            name="get_opf_api_reference",
-            description="Get module, signature, and docstring for a public GDM-Flow API symbol.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "symbol_name": {
-                        "type": "string",
-                        "description": "Public symbol name (e.g., solve_dc_opf_from_components)",
-                    }
-                },
-                "required": ["symbol_name"],
-            },
-        ),
-        Tool(
-            name="opf_fix_violations",
-            description="Detect and fix voltage/loading violations in a GDM distribution system model iteratively.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "system_path": {
-                        "type": "string",
-                        "description": "Path to system JSON file",
-                    },
-                    "model_ref": {
-                        "type": "object",
-                        "description": "Optional model reference ({model_id/version} or direct stored_path/path)",
-                    },
-                    "output_path": {
-                        "type": "string",
-                        "description": "Output path for the fixed model JSON. If empty, appends '_fixed' to input filename.",
-                    },
-                    "max_iterations": {"type": "integer", "default": 10},
-                    "solver": {
-                        "type": "string",
-                        "enum": ["ldf", "ac"],
-                        "default": "ldf",
-                        "description": "Solver for violation detection (ldf=LinDistFlow, ac=AC OPF)",
-                    },
-                    "vm_min_pu": {"type": "number", "default": 0.95},
-                    "vm_max_pu": {"type": "number", "default": 1.05},
-                },
-                "required": [],
-            },
-        ),
-        Tool(
-            name="scale_loads",
-            description=(
-                "Scale every load's real/reactive power by a factor and write the "
-                "updated system JSON (use before a power-flow run to model higher demand)."
             ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "system_path": {
-                        "type": "string",
-                        "description": "Path to system JSON file",
+            Tool(
+                name="opf_run_ac",
+                description="Run AC OPF directly from system components.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "system_path": {
+                            "type": "string",
+                            "description": "Path to system JSON file",
+                        },
+                        "model_ref": {
+                            "type": "object",
+                            "description": "Optional model reference ({model_id/version} or direct stored_path/path)",
+                        },
+                        "include_loads": {"type": "boolean", "default": True},
+                        "include_solar": {"type": "boolean", "default": True},
+                        "include_battery": {"type": "boolean", "default": False},
+                        "include_capacitor": {"type": "boolean", "default": True},
+                        "include_regulator_targets": {
+                            "type": "boolean",
+                            "default": True,
+                        },
+                        "include_regulator_limits": {
+                            "type": "boolean",
+                            "default": True,
+                        },
+                        "include_neutral": {"type": "boolean", "default": False},
+                        "include_shunt": {"type": "boolean", "default": False},
+                        "convert_geometry_to_matrix": {
+                            "type": "boolean",
+                            "default": True,
+                        },
+                        "vm_min_pu": {"type": "number", "default": 0.95},
+                        "vm_max_pu": {"type": "number", "default": 1.05},
+                        "max_nfev": {"type": "integer", "default": 300},
+                        "include_details": {
+                            "type": "boolean",
+                            "description": "Include per-node solved values",
+                            "default": False,
+                        },
                     },
-                    "load_scale": {
-                        "type": "number",
-                        "description": "Multiplier applied to every load's power",
-                        "default": 1.0,
-                    },
-                    "output_path": {
-                        "type": "string",
-                        "description": "Where to write the scaled system JSON (defaults to system_path)",
-                    },
+                    "required": [],
                 },
-                "required": ["load_scale"],
-            },
-        ),
-    ]
+            ),
+            Tool(
+                name="opf_run_dc",
+                description="Run DC OPF directly from system components.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "system_path": {
+                            "type": "string",
+                            "description": "Path to system JSON file",
+                        },
+                        "model_ref": {
+                            "type": "object",
+                            "description": "Optional model reference ({model_id/version} or direct stored_path/path)",
+                        },
+                        "include_solar_generators": {
+                            "type": "boolean",
+                            "default": True,
+                        },
+                        "include_battery_generators": {
+                            "type": "boolean",
+                            "default": True,
+                        },
+                        "include_loads": {"type": "boolean", "default": True},
+                        "include_slack_generator": {"type": "boolean", "default": True},
+                        "slack_cost_linear": {"type": "number", "default": 50.0},
+                        "include_neutral": {"type": "boolean", "default": False},
+                        "include_shunt": {"type": "boolean", "default": False},
+                        "convert_geometry_to_matrix": {
+                            "type": "boolean",
+                            "default": True,
+                        },
+                        "theta_min_rad": {
+                            "type": "number",
+                            "default": -1.5707963267948966,
+                        },
+                        "theta_max_rad": {
+                            "type": "number",
+                            "default": 1.5707963267948966,
+                        },
+                        "theta_penalty": {"type": "number", "default": 1e-6},
+                        "maxiter": {"type": "integer", "default": 500},
+                        "include_details": {
+                            "type": "boolean",
+                            "description": "Include generator dispatch and nodal details",
+                            "default": False,
+                        },
+                    },
+                    "required": [],
+                },
+            ),
+            Tool(
+                name="opf_run_lindistflow",
+                description="Run LinDistFlow from component-derived net injections.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "system_path": {
+                            "type": "string",
+                            "description": "Path to system JSON file",
+                        },
+                        "model_ref": {
+                            "type": "object",
+                            "description": "Optional model reference ({model_id/version} or direct stored_path/path)",
+                        },
+                        "include_loads": {"type": "boolean", "default": True},
+                        "include_solar": {"type": "boolean", "default": True},
+                        "include_battery": {"type": "boolean", "default": True},
+                        "include_capacitor": {"type": "boolean", "default": True},
+                        "include_neutral": {"type": "boolean", "default": False},
+                        "include_open_switches": {"type": "boolean", "default": False},
+                        "include_details": {
+                            "type": "boolean",
+                            "description": "Include per-node and per-branch outputs",
+                            "default": False,
+                        },
+                    },
+                    "required": [],
+                },
+            ),
+            Tool(
+                name="opf_compare_solvers",
+                description="Run AC OPF, DC OPF, and LinDistFlow and return a side-by-side summary.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "system_path": {
+                            "type": "string",
+                            "description": "Path to system JSON file",
+                        },
+                        "model_ref": {
+                            "type": "object",
+                            "description": "Optional model reference ({model_id/version} or direct stored_path/path)",
+                        },
+                        "include_details": {
+                            "type": "boolean",
+                            "description": "Include full per-solver details in addition to summary",
+                            "default": False,
+                        },
+                    },
+                    "required": [],
+                },
+            ),
+            Tool(
+                name="opf_export_sqlite",
+                description="Run selected OPF solvers and export results to a SQLite database.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "system_path": {
+                            "type": "string",
+                            "description": "Path to system JSON file",
+                        },
+                        "model_ref": {
+                            "type": "object",
+                            "description": "Optional model reference ({model_id/version} or direct stored_path/path)",
+                        },
+                        "db_path": {
+                            "type": "string",
+                            "description": "Output SQLite database path",
+                        },
+                        "run_ac": {"type": "boolean", "default": True},
+                        "run_dc": {"type": "boolean", "default": True},
+                        "run_lindistflow": {"type": "boolean", "default": True},
+                    },
+                    "required": ["db_path"],
+                },
+            ),
+            # Documentation and knowledge tools
+            Tool(
+                name="list_opf_documentation",
+                description="List available GDM-Flow documentation files (docs/*.md, docs/*.ipynb).",
+                inputSchema={
+                    "type": "object",
+                    "properties": {},
+                },
+            ),
+            Tool(
+                name="search_opf_documentation",
+                description="Search GDM-Flow documentation and return relevant snippets.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "Search term or phrase",
+                        },
+                        "max_results": {
+                            "type": "integer",
+                            "description": "Maximum number of matches to return",
+                            "default": 5,
+                        },
+                    },
+                    "required": ["query"],
+                },
+            ),
+            Tool(
+                name="get_opf_documentation_page",
+                description="Read a specific documentation page by relative path from docs/.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "doc_path": {
+                            "type": "string",
+                            "description": "Path relative to docs/ (e.g., solvers/ac_opf.md)",
+                        },
+                        "start_line": {
+                            "type": "integer",
+                            "description": "1-based start line",
+                            "default": 1,
+                        },
+                        "max_lines": {
+                            "type": "integer",
+                            "description": "Maximum number of lines to return",
+                            "default": 160,
+                        },
+                    },
+                    "required": ["doc_path"],
+                },
+            ),
+            Tool(
+                name="list_opf_api_symbols",
+                description="List public API symbols exposed by gdm_flow.__all__.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {},
+                },
+            ),
+            Tool(
+                name="get_opf_api_reference",
+                description="Get module, signature, and docstring for a public GDM-Flow API symbol.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "symbol_name": {
+                            "type": "string",
+                            "description": "Public symbol name (e.g., solve_dc_opf_from_components)",
+                        }
+                    },
+                    "required": ["symbol_name"],
+                },
+            ),
+            Tool(
+                name="opf_fix_violations",
+                description="Detect and fix voltage/loading violations in a GDM distribution system model iteratively.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "system_path": {
+                            "type": "string",
+                            "description": "Path to system JSON file",
+                        },
+                        "model_ref": {
+                            "type": "object",
+                            "description": "Optional model reference ({model_id/version} or direct stored_path/path)",
+                        },
+                        "output_path": {
+                            "type": "string",
+                            "description": "Output path for the fixed model JSON. If empty, appends '_fixed' to input filename.",
+                        },
+                        "max_iterations": {"type": "integer", "default": 10},
+                        "solver": {
+                            "type": "string",
+                            "enum": ["ldf", "ac"],
+                            "default": "ldf",
+                            "description": "Solver for violation detection (ldf=LinDistFlow, ac=AC OPF)",
+                        },
+                        "vm_min_pu": {"type": "number", "default": 0.95},
+                        "vm_max_pu": {"type": "number", "default": 1.05},
+                    },
+                    "required": [],
+                },
+            ),
+            Tool(
+                name="scale_loads",
+                description=(
+                    "Scale every load's real/reactive power by a factor and write the "
+                    "updated system JSON (use before a power-flow run to model higher demand)."
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "system_path": {
+                            "type": "string",
+                            "description": "Path to system JSON file",
+                        },
+                        "load_scale": {
+                            "type": "number",
+                            "description": "Multiplier applied to every load's power",
+                            "default": 1.0,
+                        },
+                        "output_path": {
+                            "type": "string",
+                            "description": "Where to write the scaled system JSON (defaults to system_path)",
+                        },
+                    },
+                    "required": ["load_scale"],
+                },
+            ),
+        ]
+    )
 
 
 _TOOL_HANDLERS: dict[str, Any] = {
@@ -636,9 +671,10 @@ _TOOL_HANDLERS: dict[str, Any] = {
 }
 
 
-@app.call_tool()
-async def call_tool(name: str, arguments: Any) -> list[TextContent]:
+async def _handle_call_tool(params: CallToolRequest) -> CallToolResult:
     """Handle MCP tool calls."""
+    name = params.params.name
+    arguments = params.params.arguments
     try:
         logger.info("Tool called: %s", name)
         handler = _TOOL_HANDLERS.get(name)
@@ -646,17 +682,28 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             result = {"error": f"Unknown tool: {name}"}
         else:
             result = await handler(arguments or {})
-        return [
-            TextContent(type="text", text=json.dumps(result, indent=2, default=str))
-        ]
+        return CallToolResult(
+            content=[
+                TextContent(type="text", text=json.dumps(result, indent=2, default=str))
+            ]
+        )
     except Exception as exc:  # pragma: no cover
         logger.exception("Tool %s failed", name)
-        return [
-            TextContent(
-                type="text",
-                text=json.dumps({"error": f"{type(exc).__name__}: {exc}"}, indent=2),
-            )
-        ]
+        return CallToolResult(
+            content=[
+                TextContent(
+                    type="text",
+                    text=json.dumps(
+                        {"error": f"{type(exc).__name__}: {exc}"}, indent=2
+                    ),
+                )
+            ]
+        )
+
+
+# Register handlers with the v2 API
+app.add_request_handler("tools/list", ListToolsRequest, _handle_list_tools)
+app.add_request_handler("tools/call", CallToolRequest, _handle_call_tool)
 
 
 async def _handle_calculate_ybus(args: dict[str, Any]) -> dict[str, Any]:

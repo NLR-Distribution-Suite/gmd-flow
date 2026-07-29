@@ -5,7 +5,7 @@ project:
   subtitle: Power Flow & Optimal Power Flow for Distribution Systems
   authors:
     - name: NLR Distribution Suite
-  github: NLR-Distribution-Suite/gmd-flow
+  github: NLR-Distribution-Suite/gdm-flow
   license:
     code: MIT
   keywords:

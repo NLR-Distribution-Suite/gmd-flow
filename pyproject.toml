@@ -29,7 +29,7 @@ gdm-flow-mcp-server = "gdm_flow.mcp.server:main"
 [project.optional-dependencies]
 
 plotting = ["plotly>=5.0"]
-mcp = ["mcp>=1.0.0"]
+mcp = ["mcp>=2.0.0"]
 opendss = ["opendssdirect.py>=0.9"]
 dev = [
   "pytest>=8.0",
@@ -46,3 +46,16 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["gdm_flow"]
+omit = ["*/dashboard.py"]
+
+[tool.coverage.report]
+fail_under = 89
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "if __name__",
+    "raise NotImplementedError",
+]

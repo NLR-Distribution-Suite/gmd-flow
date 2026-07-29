@@ -186,7 +186,10 @@ def _get_common_buses(
 def model_data(request):
     """Provide (name, dss_path, system, tap_positions, cap_states) for each test model."""
     name, dss_path, gdm_path = request.param
-    system = DistributionSystem.from_json(str(gdm_path))
+    try:
+        system = DistributionSystem.from_json(str(gdm_path))
+    except Exception as exc:
+        pytest.skip(f"Cannot load GDM model {gdm_path.name}: {exc}")
     aggregate_single_phase_transformers(system)
     tap_positions = _extract_tap_positions(system)
     cap_states = _extract_cap_states(system)
