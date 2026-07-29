@@ -29,7 +29,7 @@ gdm-flow-mcp-server = "gdm_flow.mcp.server:main"
 [project.optional-dependencies]
 
 plotting = ["plotly>=5.0"]
-mcp = ["mcp>=1.0.0"]
+mcp = ["mcp>=2.0.0"]
 opendss = ["opendssdirect.py>=0.9"]
 dev = [
   "pytest>=8.0",
