@@ -49,7 +49,7 @@ testpaths = ["tests"]
 
 [tool.coverage.run]
 source = ["gdm_flow"]
-omit = ["src/gdm_flow/dashboard.py"]
+omit = ["*/dashboard.py"]
 
 [tool.coverage.report]
 fail_under = 90
