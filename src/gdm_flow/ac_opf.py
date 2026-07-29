@@ -785,6 +785,12 @@ def optimize_ac_power_flow(
         )
         m_ns = len(non_slack)
 
+        # Interior-point barrier parameters for voltage bounds
+        vm_lb = lb[m_ns:]  # lower bounds on Vm (per-unit)
+        vm_ub = ub[m_ns:]  # upper bounds on Vm (per-unit)
+        mu = 1e-3  # initial barrier parameter
+        mu_min = 1e-8
+
         for nr_iter in range(nr_max_iter):
             v_pu = _build_voltage_from_state(x_nr, n, slack_set, theta0)
             s_calc = v_pu * np.conj(ybus_pu @ v_pu)
@@ -817,6 +823,15 @@ def optimize_ac_power_flow(
                 s_diag * vm_inv, format="csr"
             )
 
+            # Add log-barrier gradient to Vm equations for bound enforcement
+            vm_current = x_nr[m_ns:]
+            # Clamp distances from bounds to avoid division by zero
+            dist_lb = np.maximum(vm_current - vm_lb, 1e-10)
+            dist_ub = np.maximum(vm_ub - vm_current, 1e-10)
+            barrier_grad = mu * (1.0 / dist_ub - 1.0 / dist_lb)
+            barrier_hess_diag = mu * (1.0 / dist_ub**2 + 1.0 / dist_lb**2)
+
+            # Augment Jacobian: add barrier Hessian diagonal to Vm block
             j_nr = _sp_nr.bmat(
                 [
                     [ds_dtheta.real, ds_dvm.real],
@@ -824,16 +839,34 @@ def optimize_ac_power_flow(
                 ],
                 format="csc",
             )
+            # Add barrier Hessian to the Vm diagonal entries
+            barrier_diag_full = np.zeros(2 * m_ns)
+            barrier_diag_full[m_ns:] = barrier_hess_diag
+            j_nr = j_nr + _sp_nr.diags(barrier_diag_full, format="csc")
 
             rhs = np.concatenate([mismatch.real, mismatch.imag])
+            # Add barrier gradient to Vm part of RHS
+            rhs[m_ns:] += barrier_grad
+
             dx = spsolve(j_nr, -rhs)
 
-            # Damped line-search: halve the step until mismatch improves.
+            # Fraction-to-boundary: limit step so Vm stays within bounds
             alpha = 1.0
+            tau = 0.995
+            vm_step = dx[m_ns:]
+            for i in range(m_ns):
+                if vm_step[i] < 0:
+                    max_step = tau * dist_lb[i] / (-vm_step[i])
+                    alpha = min(alpha, max_step)
+                elif vm_step[i] > 0:
+                    max_step = tau * dist_ub[i] / vm_step[i]
+                    alpha = min(alpha, max_step)
+
+            # Damped line-search within the feasible step
             for _bt in range(10):
                 x_trial = x_nr + alpha * dx
-                # Prevent negative Vm
-                x_trial[m_ns:] = np.maximum(x_trial[m_ns:], 0.1)
+                x_trial[m_ns:] = np.maximum(x_trial[m_ns:], vm_lb + 1e-10)
+                x_trial[m_ns:] = np.minimum(x_trial[m_ns:], vm_ub - 1e-10)
                 v_trial = _build_voltage_from_state(x_trial, n, slack_set, theta0)
                 s_trial = v_trial * np.conj(ybus_pu @ v_trial)
                 mis_trial = s_trial[non_slack] - s_spec_pu[non_slack]
@@ -845,7 +878,11 @@ def optimize_ac_power_flow(
                     break
                 alpha *= 0.5
             x_nr = x_nr + alpha * dx
-            x_nr[m_ns:] = np.maximum(x_nr[m_ns:], 0.1)
+            x_nr[m_ns:] = np.maximum(x_nr[m_ns:], vm_lb + 1e-10)
+            x_nr[m_ns:] = np.minimum(x_nr[m_ns:], vm_ub - 1e-10)
+
+            # Reduce barrier parameter
+            mu = max(mu * 0.5, mu_min)
 
         x0 = np.clip(x_nr, lb, ub)
         nr_converged = max_mis < nr_tol
