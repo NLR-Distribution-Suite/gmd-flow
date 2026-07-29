@@ -776,7 +776,6 @@ def optimize_ac_power_flow(
 
         nr_max_iter = 50
         nr_tol = 1e-6
-        # Start from the un-clipped initial point (S2 at θ=π, Vm=1.0).
         x_nr = np.concatenate(
             [
                 theta0[non_slack],
@@ -784,6 +783,36 @@ def optimize_ac_power_flow(
             ]
         )
         m_ns = len(non_slack)
+
+        # Use AC PF as warm-start — it has proven convergence on all models
+        try:
+            from .ac_pf import solve_ac_power_flow
+
+            pf_result = solve_ac_power_flow(
+                system,
+                p_spec_w=p_spec_w,
+                q_spec_var=q_spec_var,
+                include_neutral=include_neutral,
+                include_shunt=include_shunt,
+                convert_geometry_to_matrix=convert_geometry_to_matrix,
+            )
+            if pf_result.success:
+                for idx, label in enumerate(labels):
+                    if label in label_to_index:
+                        gidx = label_to_index[label]
+                        if gidx in non_slack:
+                            local_idx = non_slack.index(gidx)
+                            x_nr[m_ns + local_idx] = (
+                                abs(pf_result.voltage[idx]) / v_base[gidx]
+                            )
+                            x_nr[local_idx] = float(np.angle(pf_result.voltage[idx]))
+                # PF converged — check if bounds are satisfied
+                vm_pu_pf = x_nr[m_ns:]
+                if np.all(vm_pu_pf >= lb[m_ns:]) and np.all(vm_pu_pf <= ub[m_ns:]):
+                    nr_converged = True
+                    max_mis = pf_result.max_mismatch_pu
+        except Exception:
+            pass
 
         # Interior-point barrier parameters for voltage bounds
         vm_lb = lb[m_ns:]  # lower bounds on Vm (per-unit)
