@@ -1982,7 +1982,7 @@ def multiperiod(
 
 
 @app.command("plot-ts")
-def plot_ts(
+def plot_ts(  # pragma: no cover
     db: Path = typer.Argument(
         ..., help="SQLite database with QSTS/multi-period results"
     ),
@@ -2095,7 +2095,7 @@ def _print_ac_voltages(ac_r: dict, system: DistributionSystem) -> None:
     console.print(vtbl)
 
 
-def _export_html(
+def _export_html(  # pragma: no cover
     system: DistributionSystem,
     ac_r: dict,
     dc_r: dict,
