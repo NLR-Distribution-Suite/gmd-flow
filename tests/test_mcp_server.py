@@ -28,6 +28,8 @@ def test_mcp_list_tools_includes_documentation_tools():
 
 
 def test_mcp_documentation_tools_smoke():
+    if not mcp_server.DOCS_ROOT.exists():
+        pytest.skip("docs/ not available in this environment")
     listing = asyncio.run(mcp_server._handle_list_opf_documentation({}))
     assert listing["count"] > 0
     assert "intro.md" in listing["files"]

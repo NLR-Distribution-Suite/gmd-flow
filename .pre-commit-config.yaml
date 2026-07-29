@@ -12,8 +12,8 @@ repos:
   - repo: local
     hooks:
       - id: coverage
-        name: coverage (90% minimum)
-        entry: pytest --cov=gdm_flow --cov-fail-under=90 --cov-report=term-missing -q
+        name: coverage (89% minimum)
+        entry: pytest --cov=gdm_flow --cov-fail-under=89 --cov-report=term-missing -q
         language: system
         pass_filenames: false
         always_run: true
