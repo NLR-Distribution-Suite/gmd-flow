@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import math
 from collections import defaultdict
 from dataclasses import dataclass
@@ -671,8 +672,8 @@ def _run_interior_point_nr(
             if np.all(vm_pu_pf >= lb[m_ns:]) and np.all(vm_pu_pf <= ub[m_ns:]):
                 nr_converged = True
                 max_mis = pf_result.max_mismatch_pu
-    except Exception:  # noqa: S110, BLE001  # noqa: S110, BLE001 — AC PF may fail on some topologies
-        pass
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger(__name__).debug("AC PF warm-start failed: %s", exc)
 
     # Interior-point barrier parameters for voltage bounds
     vm_lb = lb[m_ns:]
@@ -1109,8 +1110,8 @@ def optimize_ac_power_flow_from_components(
             source_phases = [_phase_name(p) for p in source_bus.phases if p != Phase.N]
             if source_phases:
                 slack_label = [(source_bus.name, p) for p in source_phases]
-        except Exception:  # noqa: S110, BLE001
-            pass  # Fall back to index-0 slack inside optimize_ac_power_flow
+        except Exception as exc:  # noqa: BLE001
+            logging.getLogger(__name__).debug("Source bus lookup failed: %s", exc)
 
     return optimize_ac_power_flow(
         system,
