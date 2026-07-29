@@ -65,8 +65,8 @@ class TestHelperFunctions:
         assert result == {"real": 3.0, "imag": 4.0}
 
     def test_get_system_path_arg_from_system_path(self):
-        path = mcp_server._get_system_path_arg({"system_path": "/tmp/test.json"})
-        assert path == "/tmp/test.json"
+        path = mcp_server._get_system_path_arg({"system_path": "/data/test.json"})
+        assert path == "/data/test.json"
 
     def test_get_system_path_arg_missing_raises(self):
         with pytest.raises(ValueError, match="Expected either"):
@@ -74,9 +74,9 @@ class TestHelperFunctions:
 
     def test_get_system_path_arg_model_ref_with_path(self):
         path = mcp_server._get_system_path_arg(
-            {"model_ref": {"stored_path": "/tmp/stored.json"}}
+            {"model_ref": {"stored_path": "/data/stored.json"}}
         )
-        assert path == "/tmp/stored.json"
+        assert path == "/data/stored.json"
 
     def test_resolve_model_ref_no_model_id(self):
         with pytest.raises(ValueError, match="must include a path or model_id"):
