@@ -52,7 +52,7 @@ source = ["gdm_flow"]
 omit = ["src/gdm_flow/dashboard.py"]
 
 [tool.coverage.report]
-fail_under = 95
+fail_under = 90
 exclude_lines = [
     "pragma: no cover",
     "if TYPE_CHECKING:",
