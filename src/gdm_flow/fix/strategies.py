@@ -173,7 +173,9 @@ class AddCapacitorStrategy(FixStrategy):
             if existing_cap is not None:
                 # Increase existing capacitor capacity
                 for phase_cap in existing_cap.equipment.phase_capacitors:
-                    old_kvar = float(phase_cap.rated_reactive_power.to("kilovar").magnitude)
+                    old_kvar = float(
+                        phase_cap.rated_reactive_power.to("kilovar").magnitude
+                    )
                     from gdm.quantities import ReactivePower
 
                     phase_cap.rated_reactive_power = ReactivePower(
