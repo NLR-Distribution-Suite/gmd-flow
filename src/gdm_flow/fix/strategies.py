@@ -2,26 +2,22 @@
 
 from __future__ import annotations
 
-import copy
-import math
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from gdm.distribution import DistributionSystem
 from gdm.distribution.components import (
-    DistributionBus,
     DistributionTransformer,
 )
 from gdm.distribution.components.base.distribution_branch_base import (
     DistributionBranchBase,
 )
-from gdm.distribution.enums import Phase
 
 from .._utils import _phase_name
 
 if TYPE_CHECKING:
-    from .detect import BranchLoadingViolation, ViolationReport, VoltageViolation
+    from .detect import ViolationReport
 
 
 @dataclass
@@ -80,7 +76,10 @@ class AdjustRegulatorTapStrategy(FixStrategy):
             if not regulator.in_service:
                 continue
             for idx, controller in enumerate(regulator.controllers):
-                key = (controller.controlled_bus.name, _phase_name(controller.controlled_phase))
+                key = (
+                    controller.controlled_bus.name,
+                    _phase_name(controller.controlled_phase),
+                )
                 controlled_buses[key] = (regulator, idx)
 
         for vv in report.voltage_violations:
@@ -211,7 +210,9 @@ class AddCapacitorStrategy(FixStrategy):
 class ResizeConductorStrategy(FixStrategy):
     """Resize branch conductors to fix loading and undervoltage violations."""
 
-    def __init__(self, *, scale_factor: float = 1.5, impedance_reduction_factor: float = 0.9):
+    def __init__(
+        self, *, scale_factor: float = 1.5, impedance_reduction_factor: float = 0.9
+    ):
         self._scale_factor = scale_factor
         self._impedance_reduction_factor = impedance_reduction_factor
 
@@ -229,7 +230,13 @@ class ResizeConductorStrategy(FixStrategy):
         changed: list[str] = []
         factor = self._impedance_reduction_factor
 
-        for attr in ("r_matrix", "x_matrix", "impedance_matrix", "resistance", "reactance"):
+        for attr in (
+            "r_matrix",
+            "x_matrix",
+            "impedance_matrix",
+            "resistance",
+            "reactance",
+        ):
             if not hasattr(equipment, attr):
                 continue
             value = getattr(equipment, attr)
@@ -243,7 +250,13 @@ class ResizeConductorStrategy(FixStrategy):
 
         if hasattr(equipment, "conductors"):
             for cond in equipment.conductors:
-                for attr in ("r_matrix", "x_matrix", "impedance_matrix", "resistance", "reactance"):
+                for attr in (
+                    "r_matrix",
+                    "x_matrix",
+                    "impedance_matrix",
+                    "resistance",
+                    "reactance",
+                ):
                     if not hasattr(cond, attr):
                         continue
                     value = getattr(cond, attr)
@@ -268,11 +281,15 @@ class ResizeConductorStrategy(FixStrategy):
         for b in system.get_components(DistributionBranchBase):
             all_branches[b.name] = b
 
-        target_branch_names: set[str] = {lv.branch_name for lv in report.loading_violations}
+        target_branch_names: set[str] = {
+            lv.branch_name for lv in report.loading_violations
+        }
 
         # Undervoltage can often be addressed by reducing feeder impedance.
         undervoltage_buses = {
-            vv.bus_name for vv in report.voltage_violations if getattr(vv, "kind", None) == "undervoltage"
+            vv.bus_name
+            for vv in report.voltage_violations
+            if getattr(vv, "kind", None) == "undervoltage"
         }
         if undervoltage_buses:
             for branch in all_branches.values():
