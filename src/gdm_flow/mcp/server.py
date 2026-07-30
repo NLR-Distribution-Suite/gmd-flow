@@ -16,7 +16,6 @@ from gdm.distribution import DistributionSystem
 from mcp.server import Server
 from mcp import stdio_server
 from mcp_types import (
-    CallToolRequest,
     CallToolRequestParams,
     CallToolResult,
     ListToolsRequest,
