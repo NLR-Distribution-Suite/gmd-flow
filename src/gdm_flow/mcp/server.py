@@ -17,6 +17,7 @@ from mcp.server import Server
 from mcp import stdio_server
 from mcp_types import (
     CallToolRequest,
+    CallToolRequestParams,
     CallToolResult,
     ListToolsRequest,
     ListToolsResult,
@@ -306,7 +307,7 @@ def _serialize_lindistflow_result(result: Any, include_details: bool) -> dict[st
     return payload
 
 
-async def _handle_list_tools(params: ListToolsRequest) -> ListToolsResult:
+async def _handle_list_tools(ctx, params: ListToolsRequest) -> ListToolsResult:
     """List available GDM-Flow MCP tools."""
     return ListToolsResult(
         tools=[
@@ -671,10 +672,10 @@ _TOOL_HANDLERS: dict[str, Any] = {
 }
 
 
-async def _handle_call_tool(params: CallToolRequest) -> CallToolResult:
+async def _handle_call_tool(ctx, params: CallToolRequestParams) -> CallToolResult:
     """Handle MCP tool calls."""
-    name = params.params.name
-    arguments = params.params.arguments
+    name = params.name
+    arguments = params.arguments
     try:
         logger.info("Tool called: %s", name)
         handler = _TOOL_HANDLERS.get(name)
@@ -703,7 +704,7 @@ async def _handle_call_tool(params: CallToolRequest) -> CallToolResult:
 
 # Register handlers with the v2 API
 app.add_request_handler("tools/list", ListToolsRequest, _handle_list_tools)
-app.add_request_handler("tools/call", CallToolRequest, _handle_call_tool)
+app.add_request_handler("tools/call", CallToolRequestParams, _handle_call_tool)
 
 
 async def _handle_calculate_ybus(args: dict[str, Any]) -> dict[str, Any]:
