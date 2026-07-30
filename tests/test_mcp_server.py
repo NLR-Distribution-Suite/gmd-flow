@@ -15,7 +15,7 @@ except (AttributeError, ImportError) as exc:
 def test_mcp_list_tools_includes_documentation_tools():
     from mcp_types import ListToolsRequest
 
-    result = asyncio.run(mcp_server._handle_list_tools(ListToolsRequest(method="tools/list")))
+    result = asyncio.run(mcp_server._handle_list_tools(None, ListToolsRequest(method="tools/list")))
     tool_names = {tool.name for tool in result.tools}
 
     assert "opf_calculate_ybus" in tool_names

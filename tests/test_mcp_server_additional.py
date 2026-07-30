@@ -354,24 +354,18 @@ class TestMCPToolHandlers:
             )
 
     def test_call_tool_unknown(self):
-        from mcp_types import CallToolRequest, CallToolRequestParams
+        from mcp_types import CallToolRequestParams
 
-        req = CallToolRequest(
-            method="tools/call",
-            params=CallToolRequestParams(name="unknown_tool", arguments={}),
-        )
-        result = asyncio.run(mcp_server._handle_call_tool(req))
+        req = CallToolRequestParams(name="unknown_tool", arguments={})
+        result = asyncio.run(mcp_server._handle_call_tool(None, req))
         text = json.loads(result.content[0].text)
         assert "error" in text
 
     def test_call_tool_valid(self):
-        from mcp_types import CallToolRequest, CallToolRequestParams
+        from mcp_types import CallToolRequestParams
 
-        req = CallToolRequest(
-            method="tools/call",
-            params=CallToolRequestParams(name="list_opf_api_symbols", arguments={}),
-        )
-        result = asyncio.run(mcp_server._handle_call_tool(req))
+        req = CallToolRequestParams(name="list_opf_api_symbols", arguments={})
+        result = asyncio.run(mcp_server._handle_call_tool(None, req))
         text = json.loads(result.content[0].text)
         assert "count" in text
 
