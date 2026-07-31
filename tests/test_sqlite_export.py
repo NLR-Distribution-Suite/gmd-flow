@@ -315,3 +315,35 @@ def test_losses_table_contains_expected_methods_and_values(tmp_path):
         assert ldf_row == (0.0, 0.0, "lossless_lindistflow_assumption")
     finally:
         conn.close()
+
+
+def test_export_writes_provenance_manifest(tmp_path):
+    from dist_stack.manifest import get_manifest_path, read_manifest
+
+    db_path = tmp_path / "results_manifest.sqlite"
+
+    ac_id = export_ac_opf_result_to_sqlite(_make_ac_result(), str(db_path))
+
+    manifest_path = get_manifest_path(str(db_path))
+    assert manifest_path.is_file()
+
+    manifest = read_manifest(str(db_path))
+    assert manifest.artifact_type == "gdm_flow_run"
+    assert manifest.artifact_path == str(db_path)
+    assert manifest.tool == "ac"
+    assert manifest.package == "gdm-flow"
+    assert manifest.package_version == manifest.tool_version
+    assert manifest.config["run_id"] == ac_id
+    assert manifest.config["solver"] == "AC OPF"
+    assert ac_id in manifest.derived_from
+
+    # A subsequent run updates the same sidecar and appends to derived_from.
+    ldf_id = export_lindistflow_result_to_sqlite(
+        _make_lindistflow_result(), str(db_path)
+    )
+
+    manifest = read_manifest(str(db_path))
+    assert manifest.artifact_type == "gdm_flow_run"
+    assert manifest.config["run_id"] == ldf_id
+    assert ac_id in manifest.derived_from
+    assert ldf_id in manifest.derived_from

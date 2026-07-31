@@ -1,5 +1,12 @@
 """GDM Flow utilities."""
 
+import importlib.metadata
+
+try:
+    __version__ = importlib.metadata.version("gdm-flow")
+except importlib.metadata.PackageNotFoundError:  # pragma: no cover - dev fallback
+    __version__ = "0.0.0"
+
 from .dc_opf import (
     DCGenerator,
     DCOPFResult,
@@ -57,6 +64,7 @@ from .multiperiod import (
 from .dashboard import generate_ts_dashboard
 
 __all__ = [
+    "__version__",
     "YBusResult",
     "calculate_ybus",
     "DCGenerator",

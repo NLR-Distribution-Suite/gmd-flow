@@ -11,6 +11,9 @@ from uuid import uuid4
 
 import numpy as np
 
+from dist_stack.manifest import has_manifest, read_manifest, write_manifest
+
+from . import __version__
 from .ac_opf import PowerFlowOptimizationResult
 from .ac_pf import ACPowerFlowResult
 from .dc_opf import DCOPFResult
@@ -54,6 +57,45 @@ def _utc_now_iso() -> str:
 
 def _make_run_id(prefix: str) -> str:
     return f"{prefix}_{uuid4().hex[:12]}"
+
+
+def _update_manifest(
+    db_path: str,
+    *,
+    run_type: RunType,
+    run_id: str,
+    solver: str,
+) -> None:
+    """Write/refresh the provenance manifest sidecar next to the SQLite DB.
+
+    A single ``.manifest.json`` is maintained per SQLite DB file. Each run
+    appends its ``run_id`` to ``derived_from`` so the sidecar records every
+    run stored in the DB, while ``config.run_id`` always reflects the most
+    recent run.
+    """
+    derived_from: list[str] = []
+    if has_manifest(db_path):
+        try:
+            previous = read_manifest(db_path)
+            derived_from = list(previous.derived_from or [])
+            prev_run_id = (previous.config or {}).get("run_id")
+            if prev_run_id and prev_run_id not in derived_from:
+                derived_from.append(prev_run_id)
+        except Exception:
+            derived_from = []
+    if run_id not in derived_from:
+        derived_from.append(run_id)
+
+    write_manifest(
+        db_path,
+        artifact_type="gdm_flow_run",
+        tool=run_type.value,
+        tool_version=__version__,
+        package="gdm-flow",
+        package_version=__version__,
+        config={"solver": solver, "run_id": run_id},
+        derived_from=derived_from,
+    )
 
 
 def _connect(db_path: str) -> sqlite3.Connection:
@@ -490,6 +532,12 @@ def export_ac_opf_result_to_sqlite(
             ),
         )
         conn.commit()
+        _update_manifest(
+            db_path,
+            run_type=RunType.AC_OPF,
+            run_id=run_id,
+            solver="AC OPF",
+        )
     finally:
         conn.close()
 
@@ -680,6 +728,12 @@ def export_ac_pf_result_to_sqlite(
             ),
         )
         conn.commit()
+        _update_manifest(
+            db_path,
+            run_type=RunType.AC_PF,
+            run_id=run_id,
+            solver="AC PF",
+        )
     finally:
         conn.close()
 
@@ -832,6 +886,12 @@ def export_dc_opf_result_to_sqlite(
         )
 
         conn.commit()
+        _update_manifest(
+            db_path,
+            run_type=RunType.DC_OPF,
+            run_id=run_id,
+            solver="DC OPF",
+        )
     finally:
         conn.close()
 
@@ -1027,6 +1087,12 @@ def export_lindistflow_result_to_sqlite(
         )
 
         conn.commit()
+        _update_manifest(
+            db_path,
+            run_type=RunType.LINDISTFLOW,
+            run_id=run_id,
+            solver="LinDistFlow",
+        )
     finally:
         conn.close()
 
