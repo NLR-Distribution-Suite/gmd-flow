@@ -173,7 +173,7 @@ def solve_multiperiod_dc_opf(
     except ModuleNotFoundError as exc:
         raise RuntimeError(
             "SciPy is required for multi-period DC OPF. "
-            "Install with `pip install gdm-flow[optimization]`."
+            "Install with `pip install gdm-flow`."
         ) from exc
 
     timesteps = list(timestep_range)
@@ -635,7 +635,7 @@ def solve_multiperiod_lindistflow(
     except ModuleNotFoundError as exc:
         raise RuntimeError(
             "SciPy is required for multi-period LinDistFlow. "
-            "Install with `pip install gdm-flow[optimization]`."
+            "Install with `pip install gdm-flow`."
         ) from exc
 
     timesteps = list(timestep_range)
@@ -907,6 +907,7 @@ def _stream_multiperiod_to_sqlite(
     import sqlite3
     from uuid import uuid4
 
+    from .sqlite_export import RunType
     from .time_series import _create_ts_schema, _populate_bus_nominal
 
     conn = sqlite3.connect(db_path)
@@ -918,7 +919,7 @@ def _stream_multiperiod_to_sqlite(
     if system is not None:
         nominal_map = _populate_bus_nominal(conn, system)
 
-    run_id = f"mp_{solver}_{uuid4().hex[:12]}"
+    run_id = f"{RunType.MULTIPERIOD.value}_{solver}_{uuid4().hex[:12]}"
     conn.execute(
         """INSERT INTO ts_runs
            (run_id, implementation, mode, num_timesteps, resolution_s, start_timestamp)

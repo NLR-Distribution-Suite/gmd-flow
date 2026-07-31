@@ -669,10 +669,12 @@ def run_qsts(
         import sqlite3
         from uuid import uuid4
 
+        from .sqlite_export import RunType
+
         conn = sqlite3.connect(db_path)
         conn.execute("PRAGMA foreign_keys = ON;")
         _create_ts_schema(conn)
-        run_id = f"qsts_{solver}_{uuid4().hex[:12]}"
+        run_id = f"{RunType.QSTS.value}_{solver}_{uuid4().hex[:12]}"
         conn.execute(
             """INSERT INTO ts_runs
                (run_id, implementation, mode, num_timesteps, resolution_s, start_timestamp)

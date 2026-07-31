@@ -555,7 +555,7 @@ def optimize_ac_power_flow(
         from scipy.optimize import least_squares
     except ModuleNotFoundError as exc:  # pragma: no cover
         raise RuntimeError(
-            "SciPy is required for optimization. Install with `pip install gdm-flow[optimization]`."
+            "SciPy is required for optimization. Install with `pip install gdm-flow`."
         ) from exc
 
     ybus_result = calculate_ybus(

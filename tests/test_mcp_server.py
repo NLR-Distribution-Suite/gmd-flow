@@ -98,3 +98,29 @@ def test_get_system_path_arg_resolves_registry_model_ref(tmp_path):
         os.environ.pop("DIST_STACK_MODEL_REGISTRY_DB", None)
 
     assert path == "/tmp/opf_v2.json"
+
+
+def test_get_system_path_arg_resolves_library_registered_model(tmp_path):
+    from dist_stack.registry import register
+
+    model_path = tmp_path / "registered_v1.json"
+    model_path.write_text('{"name": "registered-model"}', encoding="utf-8")
+
+    db_path = tmp_path / "registry.sqlite"
+    record = register(
+        model_id="lib123",
+        version=1,
+        stored_path=model_path,
+        registry_db=db_path,
+    )
+
+    os.environ["DIST_STACK_MODEL_REGISTRY_DB"] = str(db_path)
+    try:
+        path = mcp_server._get_system_path_arg(
+            {"model_ref": {"model_id": "lib123", "version": 1}}
+        )
+    finally:
+        os.environ.pop("DIST_STACK_MODEL_REGISTRY_DB", None)
+
+    assert record.version == 1
+    assert path == str(model_path)

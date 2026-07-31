@@ -64,7 +64,7 @@ Or direct path-carrying references:
 3. `source_path`
 4. Registry lookup by `model_id` / `version`
 
-Lookup uses `model_ref.registry_db` first, then `DIST_STACK_MODEL_REGISTRY_DB`; `model_id`/`version` lookup is resolved via the dist-stack model registry library.
+Lookup uses `model_ref.registry_db` first, then `DIST_STACK_MODEL_REGISTRY_DB`.
 
 ### Example
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from enum import Enum
 import math
 import sqlite3
 from typing import Dict, Mapping, Sequence, Tuple
@@ -17,6 +18,34 @@ from .lindistflow import LinDistFlowResult
 
 BusPhaseLabel = Tuple[str, str]
 BranchPhaseLabel = Tuple[str, str]
+
+
+class RunType(str, Enum):
+    """Run kinds used as ``run_id`` prefixes when exporting to SQLite.
+
+    The enum values are the exact string prefixes serialized into the
+    ``run_id`` column (``<prefix>_<uuid>``) — do not change them.
+    """
+
+    AC_OPF = "ac"
+    AC_PF = "pf"
+    DC_OPF = "dc"
+    LINDISTFLOW = "lindistflow"
+    QSTS = "qsts"
+    MULTIPERIOD = "mp"
+
+
+class ViolationKind(str, Enum):
+    """Violation kind values persisted in the ``voltage_violations`` table.
+
+    The enum values are the exact strings serialized into the
+    ``violation_kind`` column — do not change them.
+    """
+
+    OVERVOLTAGE = "overvoltage"
+    UNDERVOLTAGE = "undervoltage"
+    OVER = "over"
+    UNDER = "under"
 
 
 def _utc_now_iso() -> str:
@@ -271,7 +300,7 @@ def export_ac_opf_result_to_sqlite(
 ) -> str:
     """Export an AC OPF result into SQLite and return the run_id."""
 
-    run_id = run_id or _make_run_id("ac")
+    run_id = run_id or _make_run_id(RunType.AC_OPF.value)
     conn = _connect(db_path)
     try:
         _create_schema(conn)
@@ -334,7 +363,7 @@ def export_ac_opf_result_to_sqlite(
                         v_min,
                         v_max,
                         float(voltage_v - v_max),
-                        "overvoltage",
+                        ViolationKind.OVERVOLTAGE.value,
                     )
                 )
             elif v_min is not None and voltage_v < v_min:
@@ -348,7 +377,7 @@ def export_ac_opf_result_to_sqlite(
                         v_min,
                         v_max,
                         float(v_min - voltage_v),
-                        "undervoltage",
+                        ViolationKind.UNDERVOLTAGE.value,
                     )
                 )
 
@@ -479,7 +508,7 @@ def export_ac_pf_result_to_sqlite(
 ) -> str:
     """Export an AC PF result into SQLite and return the run_id."""
 
-    run_id = run_id or _make_run_id("pf")
+    run_id = run_id or _make_run_id(RunType.AC_PF.value)
     conn = _connect(db_path)
     try:
         _create_schema(conn)
@@ -538,7 +567,7 @@ def export_ac_pf_result_to_sqlite(
                         v_min,
                         v_max,
                         v_min - v_mag,
-                        "under",
+                        ViolationKind.UNDER.value,
                     )
                 )
             elif v_max is not None and v_mag > v_max:
@@ -552,7 +581,7 @@ def export_ac_pf_result_to_sqlite(
                         v_min,
                         v_max,
                         v_mag - v_max,
-                        "over",
+                        ViolationKind.OVER.value,
                     )
                 )
 
@@ -668,7 +697,7 @@ def export_dc_opf_result_to_sqlite(
 ) -> str:
     """Export a DC OPF result into SQLite and return the run_id."""
 
-    run_id = run_id or _make_run_id("dc")
+    run_id = run_id or _make_run_id(RunType.DC_OPF.value)
     conn = _connect(db_path)
     try:
         _create_schema(conn)
@@ -819,7 +848,7 @@ def export_lindistflow_result_to_sqlite(
 ) -> str:
     """Export a LinDistFlow result into SQLite and return the run_id."""
 
-    run_id = run_id or _make_run_id("lindistflow")
+    run_id = run_id or _make_run_id(RunType.LINDISTFLOW.value)
     conn = _connect(db_path)
     try:
         _create_schema(conn)
@@ -882,7 +911,7 @@ def export_lindistflow_result_to_sqlite(
                         v_min,
                         v_max,
                         float(voltage_v - v_max),
-                        "overvoltage",
+                        ViolationKind.OVERVOLTAGE.value,
                     )
                 )
             elif v_min is not None and voltage_v < v_min:
@@ -896,7 +925,7 @@ def export_lindistflow_result_to_sqlite(
                         v_min,
                         v_max,
                         float(v_min - voltage_v),
-                        "undervoltage",
+                        ViolationKind.UNDERVOLTAGE.value,
                     )
                 )
 

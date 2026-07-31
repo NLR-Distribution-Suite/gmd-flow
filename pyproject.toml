@@ -18,7 +18,8 @@ dependencies = [
   "grid-data-models>=2.3.7",
   "typer>=0.9",
   "rich>=13.0",
-  "scipy>=1.10"
+  "scipy>=1.10",
+  "dist-stack-model-registry>=0.1,<1"
 ]
 
 [project.scripts]
@@ -29,7 +30,7 @@ gdm-flow-mcp-server = "gdm_flow.mcp.server:main"
 [project.optional-dependencies]
 
 plotting = ["plotly>=5.0"]
-mcp = ["mcp>=1.0.0"]
+mcp = ["mcp>=1.0.0,<2"]
 opendss = ["opendssdirect.py>=0.9"]
 dev = [
   "pytest>=8.0",
@@ -43,6 +44,14 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+gdm_flow = [
+  "docs/*.md",
+  "docs/*.ipynb",
+  "docs/*/*.md",
+  "docs/*/*.ipynb",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

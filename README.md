@@ -25,18 +25,6 @@ Utilities for OPF and power-flow style preprocessing on top of
 pip install -e .
 ```
 
-If you also want sparse matrix return support:
-
-```bash
-pip install -e .[sparse]
-```
-
-If you want optimization support:
-
-```bash
-pip install -e '.[optimization]'
-```
-
 If you want interactive plotting dashboards:
 
 ```bash
@@ -46,7 +34,7 @@ pip install -e '.[plotting]'
 If you want to run the MCP server:
 
 ```bash
-pip install -e '.[mcp,optimization]'
+pip install -e '.[mcp]'
 gdm-flow-mcp-server
 ```
 

@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import importlib.resources
 import json
 import logging
 import inspect
 import os
 from pathlib import Path
-import sqlite3
 from typing import Annotated, Any
+
+from dist_stack.registry import resolve_model_ref
 
 import numpy as np
 import typer
@@ -33,7 +35,24 @@ logger = logging.getLogger("gdm_flow_mcp")
 
 app = Server("gdm-flow-mcp")
 
-DOCS_ROOT = Path(__file__).resolve().parents[3] / "docs"
+def _resolve_docs_root() -> Path:
+    """Resolve the packaged ``gdm_flow`` docs directory.
+
+    Uses :func:`importlib.resources.files` so the docs resolve from the
+    installed package (wheel or editable install) instead of a repo-relative
+    path. Falls back to the legacy repo-relative ``docs/`` folder when the
+    packaged docs are unavailable (e.g. an older install).
+    """
+    try:
+        root = Path(importlib.resources.files("gdm_flow") / "docs")
+    except (ModuleNotFoundError, TypeError):  # pragma: no cover
+        root = Path(__file__).resolve().parents[3] / "docs"
+    if root.is_dir():
+        return root
+    return Path(__file__).resolve().parents[3] / "docs"
+
+
+DOCS_ROOT = _resolve_docs_root()
 _DOC_SUFFIXES = {".md", ".ipynb"}
 
 
@@ -104,51 +123,12 @@ def _load_system(system_path: str) -> DistributionSystem:
 
 
 def _resolve_model_ref_to_path(model_ref: dict[str, Any]) -> str:
-    """Resolve model_ref payload into a concrete system JSON path."""
-    for key in ("stored_path", "path", "source_path"):
-        value = model_ref.get(key)
-        if isinstance(value, str) and value.strip():
-            return value
+    """Resolve model_ref payload into a concrete system JSON path.
 
-    model_id = model_ref.get("model_id")
-    if not isinstance(model_id, str) or not model_id.strip():
-        raise ValueError("model_ref must include a path or model_id")
-
-    version = model_ref.get("version")
-    db_path = model_ref.get("registry_db") or os.getenv("DIST_STACK_MODEL_REGISTRY_DB")
-    if not db_path:
-        raise ValueError(
-            "model_ref requires DIST_STACK_MODEL_REGISTRY_DB (or model_ref.registry_db) "
-            "when path fields are not provided"
-        )
-
-    with sqlite3.connect(str(db_path)) as conn:
-        conn.row_factory = sqlite3.Row
-        if version is None:
-            row = conn.execute(
-                """
-                SELECT stored_path FROM models
-                WHERE model_id = ?
-                ORDER BY version DESC
-                LIMIT 1
-                """,
-                (model_id,),
-            ).fetchone()
-        else:
-            row = conn.execute(
-                """
-                SELECT stored_path FROM models
-                WHERE model_id = ? AND version = ?
-                LIMIT 1
-                """,
-                (model_id, int(version)),
-            ).fetchone()
-
-    if row is None:
-        suffix = "latest" if version is None else f"version={version}"
-        raise ValueError(f"model_ref not found for model_id={model_id}, {suffix}")
-
-    return str(row["stored_path"])
+    Path-carrying refs pass through; model_id/version resolve via the
+    dist_stack model registry (DIST_STACK_MODEL_REGISTRY_DB).
+    """
+    return resolve_model_ref(model_ref)
 
 
 def _get_system_path_arg(args: dict[str, Any]) -> str:
