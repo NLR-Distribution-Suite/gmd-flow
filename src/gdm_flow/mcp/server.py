@@ -20,12 +20,18 @@ from mcp.server.stdio import stdio_server
 from mcp.types import TextContent, Tool
 
 from gdm_flow import (
+    build_battery_specs_from_components,
+    build_dc_generators_from_components,
     build_lindistflow_net_injections_from_components,
     calculate_ybus,
     export_all_results_to_sqlite,
+    generate_ts_dashboard,
     optimize_ac_power_flow_from_components,
+    run_qsts,
+    solve_ac_power_flow_from_components,
     solve_dc_opf_from_components,
     solve_lindistflow,
+    solve_multiperiod_dc_opf,
 )
 import gdm_flow as gdm_flow_api
 from gdm_flow.mcp import __version__
@@ -279,6 +285,77 @@ def _serialize_lindistflow_result(result: Any, include_details: bool) -> dict[st
     return payload
 
 
+def _serialize_ac_pf_result(result: Any) -> dict[str, Any]:
+    labels = result.ybus_result.index_to_label
+    return {
+        "success": bool(result.success),
+        "message": str(result.message),
+        "iterations": int(result.iterations),
+        "max_mismatch_pu": float(result.max_mismatch_pu),
+        "voltage_pu": [
+            {
+                "bus": bus,
+                "phase": phase,
+                "magnitude_pu": float(np.abs(v_pu)),
+                "angle_rad": float(np.angle(v_pu)),
+            }
+            for (bus, phase), v_pu in zip(labels, result.voltage_pu)
+        ],
+        "power_injection": [
+            {
+                "bus": bus,
+                "phase": phase,
+                "real_w": float(s.real),
+                "imag_var": float(s.imag),
+            }
+            for (bus, phase), s in zip(labels, result.power_injection)
+        ],
+    }
+
+
+def _serialize_qsts_summary(result: Any) -> dict[str, Any]:
+    return {
+        "solver": str(result.solver),
+        "num_timesteps": int(result.num_timesteps),
+        "num_converged": int(result.num_converged),
+        "resolution_seconds": float(result.resolution.total_seconds()),
+        "initial_timestamp": (
+            str(result.initial_timestamp) if result.initial_timestamp else None
+        ),
+        "db_path": result.db_path,
+        "run_id": result.run_id,
+        "battery_soc_traces": [
+            {
+                "battery_id": name,
+                "soc_values": [float(value) for value in values],
+            }
+            for name, values in result.battery_soc_traces.items()
+        ],
+    }
+
+
+def _serialize_multiperiod_result(result: Any) -> dict[str, Any]:
+    return {
+        "success": bool(result.success),
+        "message": str(result.message),
+        "solver": str(result.solver),
+        "num_timesteps": int(result.num_timesteps),
+        "objective": float(result.objective),
+        "generator_dispatch_w": {
+            str(timestep): {
+                name: float(value) for name, value in dispatch.items()
+            }
+            for timestep, dispatch in result.generator_dispatch_w.items()
+        },
+        "battery_soc": {
+            name: [float(value) for value in values]
+            for name, values in result.battery_soc.items()
+        },
+        "db_path": result.db_path,
+        "run_id": result.run_id,
+    }
+
+
 @app.list_tools()
 async def list_tools() -> list[Tool]:
     """List available GDM-Flow MCP tools."""
@@ -465,6 +542,116 @@ async def list_tools() -> list[Tool]:
                 "required": ["db_path"],
             },
         ),
+        Tool(
+            name="opf_run_ac_pf",
+            description="Run Newton-Raphson AC power flow directly from system components.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "system_path": {
+                        "type": "string",
+                        "description": "Path to system JSON file",
+                    },
+                    "model_ref": {
+                        "type": "object",
+                        "description": "Optional model reference ({model_id/version} or direct stored_path/path)",
+                    },
+                    "include_loads": {"type": "boolean", "default": True},
+                    "include_solar": {"type": "boolean", "default": True},
+                    "include_battery": {"type": "boolean", "default": False},
+                    "include_capacitor": {"type": "boolean", "default": True},
+                    "load_scale": {"type": "number", "default": 1.0},
+                    "solar_scale": {"type": "number", "default": 1.0},
+                    "max_iterations": {"type": "integer", "default": 100},
+                    "tolerance": {"type": "number", "default": 1e-6},
+                },
+                "required": [],
+            },
+        ),
+        Tool(
+            name="opf_run_qsts",
+            description="Run quasi-static time series simulation over component time series.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "system_path": {
+                        "type": "string",
+                        "description": "Path to system JSON file",
+                    },
+                    "model_ref": {
+                        "type": "object",
+                        "description": "Optional model reference ({model_id/version} or direct stored_path/path)",
+                    },
+                    "solver": {
+                        "type": "string",
+                        "enum": ["ac", "pf", "dc", "ldf"],
+                        "description": "Solver to run at each timestep",
+                    },
+                    "timestep_start": {"type": "integer", "default": 0},
+                    "timestep_end": {"type": "integer", "default": 95},
+                    "db_path": {
+                        "type": "string",
+                        "description": "Output SQLite database path for streamed results",
+                    },
+                    "include_loads": {"type": "boolean", "default": True},
+                    "include_solar": {"type": "boolean", "default": True},
+                    "include_battery": {"type": "boolean", "default": False},
+                    "include_capacitor": {"type": "boolean", "default": True},
+                },
+                "required": ["solver"],
+            },
+        ),
+        Tool(
+            name="opf_run_multiperiod",
+            description="Run multi-period DC OPF with battery SOC coupling across timesteps.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "system_path": {
+                        "type": "string",
+                        "description": "Path to system JSON file",
+                    },
+                    "model_ref": {
+                        "type": "object",
+                        "description": "Optional model reference ({model_id/version} or direct stored_path/path)",
+                    },
+                    "timestep_start": {"type": "integer", "default": 0},
+                    "timestep_end": {"type": "integer", "default": 23},
+                    "db_path": {
+                        "type": "string",
+                        "description": "Output SQLite database path for streamed results",
+                    },
+                    "include_batteries": {"type": "boolean", "default": True},
+                    "ramp_limit_w": {
+                        "type": "number",
+                        "description": "Maximum inter-period generator ramp (watts)",
+                    },
+                },
+                "required": [],
+            },
+        ),
+        Tool(
+            name="opf_plot_ts",
+            description="Generate an interactive HTML dashboard from QSTS/multi-period SQLite results.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "db_path": {
+                        "type": "string",
+                        "description": "Path to SQLite database with time series results",
+                    },
+                    "run_id": {
+                        "type": "string",
+                        "description": "Specific run to visualize (defaults to latest run)",
+                    },
+                    "output_path": {
+                        "type": "string",
+                        "description": "Output HTML path (defaults to {db_path}.html)",
+                    },
+                },
+                "required": ["db_path"],
+            },
+        ),
         # Documentation and knowledge tools
         Tool(
             name="list_opf_documentation",
@@ -549,6 +736,10 @@ _TOOL_HANDLERS: dict[str, Any] = {
     "opf_run_lindistflow": lambda args: _handle_run_lindistflow(args),
     "opf_compare_solvers": lambda args: _handle_compare_solvers(args),
     "opf_export_sqlite": lambda args: _handle_export_sqlite(args),
+    "opf_run_ac_pf": lambda args: _handle_run_ac_pf(args),
+    "opf_run_qsts": lambda args: _handle_run_qsts(args),
+    "opf_run_multiperiod": lambda args: _handle_run_multiperiod(args),
+    "opf_plot_ts": lambda args: _handle_plot_ts(args),
     "list_opf_documentation": lambda args: _handle_list_opf_documentation(args),
     "search_opf_documentation": lambda args: _handle_search_opf_documentation(args),
     "get_opf_documentation_page": lambda args: _handle_get_opf_documentation_page(args),
@@ -720,6 +911,80 @@ async def _handle_export_sqlite(args: dict[str, Any]) -> dict[str, Any]:
             "dc": run_dc,
             "lindistflow": run_lindistflow,
         },
+    }
+
+
+async def _handle_run_ac_pf(args: dict[str, Any]) -> dict[str, Any]:
+    system = _load_system(_get_system_path_arg(args))
+    result = solve_ac_power_flow_from_components(
+        system,
+        include_loads=bool(args.get("include_loads", True)),
+        include_solar=bool(args.get("include_solar", True)),
+        include_battery=bool(args.get("include_battery", False)),
+        include_capacitor=bool(args.get("include_capacitor", True)),
+        load_scale=float(args.get("load_scale", 1.0)),
+        solar_scale=float(args.get("solar_scale", 1.0)),
+        max_iterations=int(args.get("max_iterations", 100)),
+        tolerance=float(args.get("tolerance", 1e-6)),
+    )
+    return _serialize_ac_pf_result(result)
+
+
+async def _handle_run_qsts(args: dict[str, Any]) -> dict[str, Any]:
+    system = _load_system(_get_system_path_arg(args))
+    solver = str(args["solver"])
+    if solver not in ("ac", "pf", "dc", "ldf"):
+        raise ValueError(f"Unknown solver: {solver!r}")
+    timestep_start = int(args.get("timestep_start", 0))
+    timestep_end = int(args.get("timestep_end", 95))
+    timestep_range = range(timestep_start, timestep_end + 1)
+    db_path = args.get("db_path")
+    result = run_qsts(
+        system,
+        solver,
+        timestep_range,
+        db_path=str(db_path) if db_path else None,
+        include_loads=bool(args.get("include_loads", True)),
+        include_solar=bool(args.get("include_solar", True)),
+        include_battery=bool(args.get("include_battery", False)),
+        include_capacitor=bool(args.get("include_capacitor", True)),
+    )
+    return _serialize_qsts_summary(result)
+
+
+async def _handle_run_multiperiod(args: dict[str, Any]) -> dict[str, Any]:
+    system = _load_system(_get_system_path_arg(args))
+    timestep_start = int(args.get("timestep_start", 0))
+    timestep_end = int(args.get("timestep_end", 23))
+    timestep_range = range(timestep_start, timestep_end + 1)
+
+    include_batteries = bool(args.get("include_batteries", True))
+    battery_specs = (
+        build_battery_specs_from_components(system) if include_batteries else []
+    )
+    generators = build_dc_generators_from_components(system)
+
+    ramp_limit_w = args.get("ramp_limit_w")
+    db_path = args.get("db_path")
+    result = solve_multiperiod_dc_opf(
+        system,
+        generators=generators,
+        timestep_range=timestep_range,
+        battery_specs=battery_specs,
+        ramp_limit_w=float(ramp_limit_w) if ramp_limit_w is not None else None,
+        db_path=str(db_path) if db_path else None,
+    )
+    return _serialize_multiperiod_result(result)
+
+
+async def _handle_plot_ts(args: dict[str, Any]) -> dict[str, Any]:
+    db_path = str(args["db_path"])
+    run_id = args.get("run_id")
+    output_path = str(args.get("output_path") or f"{db_path}.html")
+    generate_ts_dashboard(db_path, output_path, run_id)
+    return {
+        "output_path": output_path,
+        "message": f"Dashboard written to {output_path}",
     }
 
 

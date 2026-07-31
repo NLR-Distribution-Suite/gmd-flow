@@ -1,6 +1,7 @@
 import asyncio
 import os
 import sqlite3
+from pathlib import Path
 
 import pytest
 
@@ -20,6 +21,12 @@ def test_mcp_list_tools_includes_documentation_tools():
     assert "get_opf_documentation_page" in tool_names
     assert "list_opf_api_symbols" in tool_names
     assert "get_opf_api_reference" in tool_names
+
+    # Newly added time-series / solver tools
+    assert "opf_run_ac_pf" in tool_names
+    assert "opf_run_qsts" in tool_names
+    assert "opf_run_multiperiod" in tool_names
+    assert "opf_plot_ts" in tool_names
 
 
 def test_mcp_documentation_tools_smoke():
@@ -124,3 +131,110 @@ def test_get_system_path_arg_resolves_library_registered_model(tmp_path):
 
     assert record.version == 1
     assert path == str(model_path)
+
+
+def test_mcp_run_ac_pf(tmp_path, system):
+    system_path = tmp_path / "system.json"
+    system.to_json(str(system_path))
+
+    result = asyncio.run(
+        mcp_server._handle_run_ac_pf(
+            {
+                "system_path": str(system_path),
+                "max_iterations": 100,
+                "tolerance": 1e-6,
+            }
+        )
+    )
+
+    assert result["success"] is True
+    assert result["iterations"] > 0
+    assert result["max_mismatch_pu"] < 1e-4
+    assert len(result["voltage_pu"]) > 0
+    for v in result["voltage_pu"]:
+        assert v["magnitude_pu"] > 0.0
+        assert isinstance(v["angle_rad"], float)
+    assert len(result["power_injection"]) == len(result["voltage_pu"])
+    for p in result["power_injection"]:
+        assert "real_w" in p
+        assert "imag_var" in p
+
+
+def test_mcp_run_qsts(tmp_path, system):
+    system_path = tmp_path / "system.json"
+    system.to_json(str(system_path))
+
+    result = asyncio.run(
+        mcp_server._handle_run_qsts(
+            {
+                "system_path": str(system_path),
+                "solver": "ldf",
+                "timestep_start": 0,
+                "timestep_end": 2,
+            }
+        )
+    )
+
+    assert result["solver"] == "ldf"
+    assert result["num_timesteps"] == 3
+    assert result["num_converged"] == 3
+    assert result["resolution_seconds"] == 900
+    assert result["initial_timestamp"] is not None
+    assert "battery_soc_traces" in result
+
+
+def test_mcp_run_multiperiod(tmp_path, system):
+    system_path = tmp_path / "system.json"
+    system.to_json(str(system_path))
+
+    result = asyncio.run(
+        mcp_server._handle_run_multiperiod(
+            {
+                "system_path": str(system_path),
+                "timestep_start": 0,
+                "timestep_end": 2,
+            }
+        )
+    )
+
+    assert result["success"] is True
+    assert result["solver"] == "dc"
+    assert result["num_timesteps"] == 3
+    assert isinstance(result["objective"], float)
+    assert len(result["generator_dispatch_w"]) == 3
+    for dispatch in result["generator_dispatch_w"].values():
+        assert len(dispatch) > 0
+        for name, value in dispatch.items():
+            assert isinstance(name, str)
+            assert isinstance(value, float)
+
+
+def test_mcp_plot_ts(tmp_path, system):
+    system_path = tmp_path / "system.json"
+    system.to_json(str(system_path))
+    db_path = tmp_path / "qsts.db"
+
+    qsts = asyncio.run(
+        mcp_server._handle_run_qsts(
+            {
+                "system_path": str(system_path),
+                "solver": "ldf",
+                "timestep_start": 0,
+                "timestep_end": 2,
+                "db_path": str(db_path),
+            }
+        )
+    )
+    assert qsts["db_path"] == str(db_path)
+    assert qsts["run_id"] is not None
+
+    result = asyncio.run(
+        mcp_server._handle_plot_ts(
+            {
+                "db_path": str(db_path),
+                "run_id": qsts["run_id"],
+            }
+        )
+    )
+    assert result["message"]
+    assert Path(result["output_path"]).exists()
