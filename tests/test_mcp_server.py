@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 import sqlite3
 from pathlib import Path
@@ -8,6 +9,58 @@ import pytest
 pytest.importorskip("mcp")
 
 from gdm_flow.mcp import server as mcp_server
+
+
+def test_mcp_list_resources():
+    resources = asyncio.run(mcp_server.list_resources())
+    assert len(resources) == 2
+
+    by_uri = {str(resource.uri): resource for resource in resources}
+    assert set(by_uri) == {"gdm-flow://solvers", "gdm-flow://workflows"}
+    assert by_uri["gdm-flow://solvers"].name == "Available Solvers"
+    assert by_uri["gdm-flow://workflows"].name == "Canonical Workflows"
+
+
+def test_mcp_read_resources():
+    for uri in ("gdm-flow://solvers", "gdm-flow://workflows"):
+        contents = asyncio.run(mcp_server.read_resource(mcp_server.AnyUrl(uri)))
+        assert len(contents) == 1
+        assert contents[0].uri == mcp_server.AnyUrl(uri)
+        data = json.loads(contents[0].text)
+        assert isinstance(data, list) and len(data) > 0
+
+
+def test_mcp_list_prompts():
+    prompts = asyncio.run(mcp_server.list_prompts())
+    assert len(prompts) == 3
+
+    names = {prompt.name for prompt in prompts}
+    assert names == {
+        "run_ac_pf_workflow",
+        "run_qsts_workflow",
+        "run_opf_workflow",
+    }
+    for prompt in prompts:
+        assert prompt.arguments is not None
+        assert [arg.name for arg in prompt.arguments] == ["system_path"]
+        assert all(arg.required for arg in prompt.arguments)
+
+
+def test_mcp_get_prompts():
+    for name in (
+        "run_ac_pf_workflow",
+        "run_qsts_workflow",
+        "run_opf_workflow",
+    ):
+        result = asyncio.run(
+            mcp_server.get_prompt(name, {"system_path": "/tmp/system.json"})
+        )
+        assert len(result.messages) == 1
+        message = result.messages[0]
+        assert message.role == "user"
+        text = message.content.text
+        assert "system_path" in text or "system path" in text
+        assert len(text) > 50
 
 
 def test_mcp_list_tools_includes_documentation_tools():

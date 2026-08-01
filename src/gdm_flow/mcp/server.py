@@ -17,7 +17,23 @@ import typer
 from gdm.distribution import DistributionSystem
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
-from mcp.types import TextContent, Tool
+from mcp.types import (
+    AnyUrl,
+    GetPromptResult,
+    ListPromptsResult,
+    ListResourcesResult,
+    Prompt,
+    PromptArgument,
+    PromptMessage,
+    Resource,
+    TextContent,
+    TextResourceContents,
+    Tool,
+)
+try:  # mcp >= 1.10 exposes ReadResourceContents in mcp.types
+    from mcp.types import ReadResourceContents  # type: ignore[attr-defined]
+except ImportError:  # pragma: no cover - older mcp layout
+    from mcp.server.lowlevel.helper_types import ReadResourceContents
 
 from gdm_flow import (
     build_battery_specs_from_components,
@@ -769,6 +785,132 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                 text=json.dumps({"error": f"{type(exc).__name__}: {exc}"}, indent=2),
             )
         ]
+
+
+# ── Resources ────────────────────────────────────────────────────────────
+
+_SOLVER_TYPES: list[str] = [
+    "ac_opf",
+    "dc_opf",
+    "lindistflow",
+    "ac_pf",
+    "qsts",
+    "multiperiod",
+]
+
+
+@app.list_resources()
+async def list_resources() -> list[Resource]:
+    """List available GDM-Flow MCP resources."""
+    return [
+        Resource(
+            uri="gdm-flow://solvers",
+            name="Available Solvers",
+            description="All registered solver types",
+            mimeType="application/json",
+        ),
+        Resource(
+            uri="gdm-flow://workflows",
+            name="Canonical Workflows",
+            description="Pre-defined workflow prompts for common tasks",
+            mimeType="application/json",
+        ),
+    ]
+
+
+@app.read_resource()
+async def read_resource(uri: AnyUrl) -> list[ReadResourceContents]:
+    """Read a GDM-Flow MCP resource as JSON."""
+    if str(uri) == "gdm-flow://solvers":
+        data: Any = _SOLVER_TYPES
+    elif str(uri) == "gdm-flow://workflows":
+        data = [
+            {"name": prompt.name, "description": prompt.description}
+            for prompt in _WORKFLOW_PROMPTS
+        ]
+    else:
+        raise ValueError(f"Unknown resource: {uri}")
+    return [
+        TextResourceContents(
+            uri=uri,
+            text=json.dumps(data, indent=2),
+            mimeType="application/json",
+        )
+    ]
+
+
+# ── Prompts ──────────────────────────────────────────────────────────────
+
+_WORKFLOW_PROMPTS: list[Prompt] = [
+    Prompt(
+        name="run_ac_pf_workflow",
+        description="Load a system, run AC power flow, and export results",
+        arguments=[PromptArgument(name="system_path", required=True)],
+    ),
+    Prompt(
+        name="run_qsts_workflow",
+        description="Load a system, run QSTS simulation, and plot time series",
+        arguments=[PromptArgument(name="system_path", required=True)],
+    ),
+    Prompt(
+        name="run_opf_workflow",
+        description="Load a system, run OPF analysis, and compare solvers",
+        arguments=[PromptArgument(name="system_path", required=True)],
+    ),
+]
+
+_PROMPT_MESSAGES: dict[str, str] = {
+    "run_ac_pf_workflow": (
+        "I'll help you run an AC power flow analysis.\n\n"
+        "1. First, load the system using `opf_run_ac_pf` with the system path.\n"
+        "2. Review the power flow results (voltages, power injections).\n"
+        "3. Export the results to SQLite using `opf_export_sqlite`.\n"
+        "4. Optionally, plot the time series dashboard using `opf_plot_ts`."
+    ),
+    "run_qsts_workflow": (
+        "I'll help you run a quasi-static time series simulation.\n\n"
+        "1. Load the system using the system path.\n"
+        "2. Run `opf_run_qsts` with the desired solver (ac/pf/dc/ldf) and "
+        "timestep range.\n"
+        "3. Review the QSTS summary (convergence, battery SOC traces).\n"
+        "4. Plot the time series dashboard using `opf_plot_ts` with the "
+        "db_path from the run.\n"
+        "5. Export results to SQLite if not already done."
+    ),
+    "run_opf_workflow": (
+        "I'll help you run an optimal power flow analysis.\n\n"
+        "1. Load the system using the system path.\n"
+        "2. Run `opf_run_ac` for AC OPF, `opf_run_dc` for DC OPF, or "
+        "`opf_run_lindistflow` for LinDistFlow.\n"
+        "3. Use `opf_compare_solvers` to compare results across solver types.\n"
+        "4. Run `opf_run_multiperiod` for multi-period optimization.\n"
+        "5. Export results to SQLite using `opf_export_sqlite`."
+    ),
+}
+
+
+@app.list_prompts()
+async def list_prompts() -> list[Prompt]:
+    """List available GDM-Flow MCP prompts."""
+    return list(_WORKFLOW_PROMPTS)
+
+
+@app.get_prompt()
+async def get_prompt(
+    name: str, arguments: dict[str, str] | None
+) -> GetPromptResult:
+    """Return the instruction message for a GDM-Flow MCP prompt."""
+    del arguments
+    if name not in _PROMPT_MESSAGES:
+        raise ValueError(f"Unknown prompt: {name}")
+    return GetPromptResult(
+        messages=[
+            PromptMessage(
+                role="user",
+                content=TextContent(type="text", text=_PROMPT_MESSAGES[name]),
+            )
+        ]
+    )
 
 
 async def _handle_calculate_ybus(args: dict[str, Any]) -> dict[str, Any]:
