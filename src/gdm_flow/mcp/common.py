@@ -13,7 +13,12 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from dist_stack.registry import resolve_model_ref
+from dist_stack.registry import (
+    ModelNotFoundError,
+    RegistryUnavailableError,
+    lookup,
+    resolve_model_ref,
+)
 from gdm.distribution import DistributionSystem
 
 import gdm_flow as gdm_flow_api
@@ -122,6 +127,40 @@ def _resolve_model_ref_to_path(model_ref: dict[str, Any]) -> str:
     dist_stack model registry (DIST_STACK_MODEL_REGISTRY_DB).
     """
     return resolve_model_ref(model_ref)
+
+
+def _resolve_provenance(model_ref: dict | None) -> dict[str, Any]:
+    """Resolve ``{model_id, model_version, model_hash}`` from a model_ref.
+
+    When ``model_ref`` carries a ``model_id``, the version and hash are looked
+    up in the dist_stack model registry (``resolve_path=False`` — only the
+    metadata is needed). Path-only refs and refs whose ``model_id`` is missing
+    from the registry resolve to all-None (honest, not fabricated). Never
+    raises; registry unavailability also yields all-None.
+    """
+    provenance: dict[str, Any] = {
+        "model_id": None,
+        "model_version": None,
+        "model_hash": None,
+    }
+    if not isinstance(model_ref, dict):
+        return provenance
+    model_id = model_ref.get("model_id")
+    if not isinstance(model_id, str) or not model_id.strip():
+        return provenance
+    try:
+        record = lookup(
+            model_id,
+            version=model_ref.get("version"),
+            registry_db=model_ref.get("registry_db"),
+            resolve_path=False,
+        )
+    except (ModelNotFoundError, RegistryUnavailableError):
+        return provenance
+    provenance["model_id"] = record.model_id
+    provenance["model_version"] = record.version
+    provenance["model_hash"] = record.model_hash
+    return provenance
 
 
 def _get_system_path_arg(

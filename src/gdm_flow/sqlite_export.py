@@ -4,14 +4,18 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import Enum
+import logging
 import math
 import sqlite3
-from typing import Dict, Mapping, Sequence, Tuple
+from typing import Any, Dict, Mapping, Sequence, Tuple
 from uuid import uuid4
 
 import numpy as np
 
+from dist_stack import RunstoreUnavailableError, create_run
 from dist_stack.manifest import has_manifest, read_manifest, write_manifest
+
+logger = logging.getLogger(__name__)
 
 from . import __version__
 from .ac_opf import PowerFlowOptimizationResult
@@ -59,19 +63,99 @@ def _make_run_id(prefix: str) -> str:
     return f"{prefix}_{uuid4().hex[:12]}"
 
 
+def _record_runstore_run(
+    *,
+    tool: str,
+    run_id: str,
+    implementation: str | None = None,
+    status: str | None = None,
+    message: str | None = None,
+    model_id: str | None = None,
+    model_version: int | None = None,
+    model_hash: str | None = None,
+    payload: Mapping[str, Any] | None = None,
+) -> None:
+    """Best-effort mirror of a completed run into the dist-stack runstore.
+
+    Additive only: when ``DIST_STACK_RUNSTORE_DB`` is unset (or the runstore
+    is otherwise unavailable) this logs a warning and returns, leaving behavior
+    byte-identical to before runstore adoption. Never raises.
+    """
+    try:
+        create_run(
+            tool=tool,
+            run_type="gdm_flow_run",
+            run_id=run_id,
+            implementation=implementation,
+            status=status,
+            message=message,
+            model_id=model_id,
+            model_version=model_version,
+            model_hash=model_hash,
+            payload=payload,
+        )
+    except RunstoreUnavailableError as exc:
+        logger.warning(
+            "runstore unavailable; skipping runstore mirror for run %s: %s",
+            run_id,
+            exc,
+        )
+
+
+def _write_run_manifest_sidecar(
+    db_path: str,
+    *,
+    tool: str,
+    run_id: str,
+    solver: str,
+    model_id: str | None = None,
+    model_version: int | None = None,
+    model_hash: str | None = None,
+) -> None:
+    """Best-effort write of a fresh ``gdm_flow_run`` manifest sidecar.
+
+    Used by QSTS/multi-period runs, which stream to their own SQLite schema
+    and today write no manifest sidecar. Never raises.
+    """
+    try:
+        write_manifest(
+            db_path,
+            artifact_type="gdm_flow_run",
+            tool=tool,
+            tool_version=__version__,
+            package="gdm-flow",
+            package_version=__version__,
+            config={"solver": solver, "run_id": run_id},
+            derived_from=[run_id],
+            model_id=model_id,
+            model_version=model_version,
+            model_hash=model_hash,
+        )
+    except Exception as exc:  # pragma: no cover - best-effort sidecar write
+        logger.warning(
+            "failed to write manifest sidecar next to %s: %s",
+            db_path,
+            exc,
+        )
+
+
 def _update_manifest(
     db_path: str,
     *,
     run_type: RunType,
     run_id: str,
     solver: str,
+    model_id: str | None = None,
+    model_version: int | None = None,
+    model_hash: str | None = None,
 ) -> None:
     """Write/refresh the provenance manifest sidecar next to the SQLite DB.
 
     A single ``.manifest.json`` is maintained per SQLite DB file. Each run
     appends its ``run_id`` to ``derived_from`` so the sidecar records every
     run stored in the DB, while ``config.run_id`` always reflects the most
-    recent run.
+    recent run. Model provenance (``model_id``/``model_version``/``model_hash``)
+    is passed through into the sidecar when provided.
     """
     derived_from: list[str] = []
     if has_manifest(db_path):
@@ -95,6 +179,9 @@ def _update_manifest(
         package_version=__version__,
         config={"solver": solver, "run_id": run_id},
         derived_from=derived_from,
+        model_id=model_id,
+        model_version=model_version,
+        model_hash=model_hash,
     )
 
 
@@ -339,8 +426,16 @@ def export_ac_opf_result_to_sqlite(
     branch_loading_va: Mapping[BranchPhaseLabel, float] | None = None,
     branch_loading_limits_va: Mapping[BranchPhaseLabel, float] | None = None,
     branch_flow_w_var: Mapping[BranchPhaseLabel, tuple[float, float]] | None = None,
+    model_id: str | None = None,
+    model_version: int | None = None,
+    model_hash: str | None = None,
 ) -> str:
-    """Export an AC OPF result into SQLite and return the run_id."""
+    """Export an AC OPF result into SQLite and return the run_id.
+
+    Optional ``model_id``/``model_version``/``model_hash`` provenance is
+    recorded in the manifest sidecar and mirrored (best-effort) into the
+    dist-stack runstore when ``DIST_STACK_RUNSTORE_DB`` is set.
+    """
 
     run_id = run_id or _make_run_id(RunType.AC_OPF.value)
     conn = _connect(db_path)
@@ -537,6 +632,20 @@ def export_ac_opf_result_to_sqlite(
             run_type=RunType.AC_OPF,
             run_id=run_id,
             solver="AC OPF",
+            model_id=model_id,
+            model_version=model_version,
+            model_hash=model_hash,
+        )
+        _record_runstore_run(
+            tool="export_ac_opf_result_to_sqlite",
+            run_id=run_id,
+            implementation=RunType.AC_OPF.value,
+            status="succeeded" if result.success else "failed",
+            message=result.message,
+            model_id=model_id,
+            model_version=model_version,
+            model_hash=model_hash,
+            payload={"solver": "AC OPF"},
         )
     finally:
         conn.close()
@@ -553,8 +662,16 @@ def export_ac_pf_result_to_sqlite(
     branch_loading_va: Mapping[BranchPhaseLabel, float] | None = None,
     branch_loading_limits_va: Mapping[BranchPhaseLabel, float] | None = None,
     branch_flow_w_var: Mapping[BranchPhaseLabel, tuple[float, float]] | None = None,
+    model_id: str | None = None,
+    model_version: int | None = None,
+    model_hash: str | None = None,
 ) -> str:
-    """Export an AC PF result into SQLite and return the run_id."""
+    """Export an AC PF result into SQLite and return the run_id.
+
+    Optional ``model_id``/``model_version``/``model_hash`` provenance is
+    recorded in the manifest sidecar and mirrored (best-effort) into the
+    dist-stack runstore when ``DIST_STACK_RUNSTORE_DB`` is set.
+    """
 
     run_id = run_id or _make_run_id(RunType.AC_PF.value)
     conn = _connect(db_path)
@@ -733,6 +850,20 @@ def export_ac_pf_result_to_sqlite(
             run_type=RunType.AC_PF,
             run_id=run_id,
             solver="AC PF",
+            model_id=model_id,
+            model_version=model_version,
+            model_hash=model_hash,
+        )
+        _record_runstore_run(
+            tool="export_ac_pf_result_to_sqlite",
+            run_id=run_id,
+            implementation=RunType.AC_PF.value,
+            status="succeeded" if result.success else "failed",
+            message=result.message,
+            model_id=model_id,
+            model_version=model_version,
+            model_hash=model_hash,
+            payload={"solver": "AC PF"},
         )
     finally:
         conn.close()
@@ -748,8 +879,16 @@ def export_dc_opf_result_to_sqlite(
     branch_loading_va: Mapping[BranchPhaseLabel, float] | None = None,
     branch_loading_limits_va: Mapping[BranchPhaseLabel, float] | None = None,
     branch_flow_w_var: Mapping[BranchPhaseLabel, tuple[float, float]] | None = None,
+    model_id: str | None = None,
+    model_version: int | None = None,
+    model_hash: str | None = None,
 ) -> str:
-    """Export a DC OPF result into SQLite and return the run_id."""
+    """Export a DC OPF result into SQLite and return the run_id.
+
+    Optional ``model_id``/``model_version``/``model_hash`` provenance is
+    recorded in the manifest sidecar and mirrored (best-effort) into the
+    dist-stack runstore when ``DIST_STACK_RUNSTORE_DB`` is set.
+    """
 
     run_id = run_id or _make_run_id(RunType.DC_OPF.value)
     conn = _connect(db_path)
@@ -891,6 +1030,20 @@ def export_dc_opf_result_to_sqlite(
             run_type=RunType.DC_OPF,
             run_id=run_id,
             solver="DC OPF",
+            model_id=model_id,
+            model_version=model_version,
+            model_hash=model_hash,
+        )
+        _record_runstore_run(
+            tool="export_dc_opf_result_to_sqlite",
+            run_id=run_id,
+            implementation=RunType.DC_OPF.value,
+            status="succeeded" if result.success else "failed",
+            message=result.message,
+            model_id=model_id,
+            model_version=model_version,
+            model_hash=model_hash,
+            payload={"solver": "DC OPF"},
         )
     finally:
         conn.close()
@@ -905,8 +1058,16 @@ def export_lindistflow_result_to_sqlite(
     run_id: str | None = None,
     voltage_limits_v: Mapping[BusPhaseLabel, tuple[float, float]] | None = None,
     loading_limits_va: Mapping[BranchPhaseLabel, float] | None = None,
+    model_id: str | None = None,
+    model_version: int | None = None,
+    model_hash: str | None = None,
 ) -> str:
-    """Export a LinDistFlow result into SQLite and return the run_id."""
+    """Export a LinDistFlow result into SQLite and return the run_id.
+
+    Optional ``model_id``/``model_version``/``model_hash`` provenance is
+    recorded in the manifest sidecar and mirrored (best-effort) into the
+    dist-stack runstore when ``DIST_STACK_RUNSTORE_DB`` is set.
+    """
 
     run_id = run_id or _make_run_id(RunType.LINDISTFLOW.value)
     conn = _connect(db_path)
@@ -1092,6 +1253,20 @@ def export_lindistflow_result_to_sqlite(
             run_type=RunType.LINDISTFLOW,
             run_id=run_id,
             solver="LinDistFlow",
+            model_id=model_id,
+            model_version=model_version,
+            model_hash=model_hash,
+        )
+        _record_runstore_run(
+            tool="export_lindistflow_result_to_sqlite",
+            run_id=run_id,
+            implementation=RunType.LINDISTFLOW.value,
+            status="succeeded" if result.success else "failed",
+            message=result.message,
+            model_id=model_id,
+            model_version=model_version,
+            model_hash=model_hash,
+            payload={"solver": "LinDistFlow"},
         )
     finally:
         conn.close()
@@ -1120,8 +1295,16 @@ def export_all_results_to_sqlite(
     lindistflow_voltage_limits_v: Mapping[BusPhaseLabel, tuple[float, float]]
     | None = None,
     lindistflow_loading_limits_va: Mapping[BranchPhaseLabel, float] | None = None,
+    model_id: str | None = None,
+    model_version: int | None = None,
+    model_hash: str | None = None,
 ) -> Dict[str, str]:
-    """Export any subset of AC OPF/AC PF/DC OPF/LinDistFlow results and return run_ids by key."""
+    """Export any subset of AC OPF/AC PF/DC OPF/LinDistFlow results and return run_ids by key.
+
+    Optional ``model_id``/``model_version``/``model_hash`` provenance is
+    forwarded to each individual export so their manifest sidecars and
+    best-effort runstore mirrors are populated.
+    """
 
     run_ids: Dict[str, str] = {}
     if ac_result is not None:
@@ -1132,6 +1315,9 @@ def export_all_results_to_sqlite(
             branch_loading_va=ac_branch_loading_va,
             branch_loading_limits_va=ac_branch_loading_limits_va,
             branch_flow_w_var=ac_branch_flow_w_var,
+            model_id=model_id,
+            model_version=model_version,
+            model_hash=model_hash,
         )
     if pf_result is not None:
         run_ids["ac_pf"] = export_ac_pf_result_to_sqlite(
@@ -1141,6 +1327,9 @@ def export_all_results_to_sqlite(
             branch_loading_va=pf_branch_loading_va,
             branch_loading_limits_va=pf_branch_loading_limits_va,
             branch_flow_w_var=pf_branch_flow_w_var,
+            model_id=model_id,
+            model_version=model_version,
+            model_hash=model_hash,
         )
     if dc_result is not None:
         run_ids["dc_opf"] = export_dc_opf_result_to_sqlite(
@@ -1149,6 +1338,9 @@ def export_all_results_to_sqlite(
             branch_loading_va=dc_branch_loading_va,
             branch_loading_limits_va=dc_branch_loading_limits_va,
             branch_flow_w_var=dc_branch_flow_w_var,
+            model_id=model_id,
+            model_version=model_version,
+            model_hash=model_hash,
         )
     if lindistflow_result is not None:
         run_ids["lindistflow"] = export_lindistflow_result_to_sqlite(
@@ -1156,5 +1348,8 @@ def export_all_results_to_sqlite(
             db_path,
             voltage_limits_v=lindistflow_voltage_limits_v,
             loading_limits_va=lindistflow_loading_limits_va,
+            model_id=model_id,
+            model_version=model_version,
+            model_hash=model_hash,
         )
     return run_ids

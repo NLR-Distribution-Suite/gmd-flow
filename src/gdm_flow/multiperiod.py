@@ -26,6 +26,7 @@ from gdm.distribution.components import (
 
 from ._utils import _phase_name, _phase_voltage
 from .dc_opf import BusPhaseLabel, DCGenerator
+from .sqlite_export import _record_runstore_run, _write_run_manifest_sidecar
 from .time_series import (
     build_dc_load_profile_at_timestep,
     build_lindistflow_injections_at_timestep,
@@ -133,6 +134,9 @@ def solve_multiperiod_dc_opf(
     include_shunt: bool = False,
     convert_geometry_to_matrix: bool = True,
     db_path: str | None = None,
+    model_id: str | None = None,
+    model_version: int | None = None,
+    model_hash: str | None = None,
 ) -> MultiPeriodResult:
     """Solve multi-period DC OPF with battery SOC coupling and ramp constraints.
 
@@ -572,6 +576,27 @@ def solve_multiperiod_dc_opf(
             batteries,
             system=system,
         )
+        if run_id is not None:
+            _record_runstore_run(
+                tool="solve_multiperiod_dc_opf",
+                run_id=run_id,
+                implementation="multiperiod",
+                status="succeeded",
+                message=f"Multi-period DC OPF converged ({T} timesteps)",
+                model_id=model_id,
+                model_version=model_version,
+                model_hash=model_hash,
+                payload={"solver": "dc"},
+            )
+            _write_run_manifest_sidecar(
+                db_path,
+                tool="solve_multiperiod_dc_opf",
+                run_id=run_id,
+                solver="dc",
+                model_id=model_id,
+                model_version=model_version,
+                model_hash=model_hash,
+            )
 
     return MultiPeriodResult(
         success=True,

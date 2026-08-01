@@ -613,6 +613,9 @@ def run_qsts(
     timestep_range: range | Sequence[int],
     *,
     db_path: str | None = None,
+    model_id: str | None = None,
+    model_version: int | None = None,
+    model_hash: str | None = None,
     include_loads: bool = True,
     include_solar: bool = True,
     include_battery: bool = False,
@@ -669,7 +672,11 @@ def run_qsts(
         import sqlite3
         from uuid import uuid4
 
-        from .sqlite_export import RunType
+        from .sqlite_export import (
+            RunType,
+            _record_runstore_run,
+            _write_run_manifest_sidecar,
+        )
 
         conn = sqlite3.connect(db_path)
         conn.execute("PRAGMA foreign_keys = ON;")
@@ -759,6 +766,28 @@ def run_qsts(
     finally:
         if conn is not None:
             conn.close()
+
+    if run_id is not None:
+        _record_runstore_run(
+            tool="run_qsts",
+            run_id=run_id,
+            implementation="qsts",
+            status="succeeded" if num_converged == len(timestep_list) else "failed",
+            message=None,
+            model_id=model_id,
+            model_version=model_version,
+            model_hash=model_hash,
+            payload={"solver": solver},
+        )
+        _write_run_manifest_sidecar(
+            db_path,
+            tool="run_qsts",
+            run_id=run_id,
+            solver=solver,
+            model_id=model_id,
+            model_version=model_version,
+            model_hash=model_hash,
+        )
 
     return QSTSSummary(
         solver=solver,

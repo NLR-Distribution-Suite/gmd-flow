@@ -29,6 +29,7 @@ from gdm_flow import (
 from gdm_flow.mcp.common import (
     _get_system_path_arg,
     _load_system,
+    _resolve_provenance,
     _serialize_ac_pf_result,
     _serialize_ac_result,
     _serialize_dc_result,
@@ -347,11 +348,15 @@ def register(mcp: MCPServer) -> None:
         dc_result = solve_dc_opf_from_components(system) if run_dc else None
         ldf_result = solve_lindistflow(system) if run_lindistflow else None
 
+        provenance = _resolve_provenance(model_ref)
         run_ids = export_all_results_to_sqlite(
             db_path,
             ac_result=ac_result,
             dc_result=dc_result,
             lindistflow_result=ldf_result,
+            model_id=provenance["model_id"],
+            model_version=provenance["model_version"],
+            model_hash=provenance["model_hash"],
         )
         return json.dumps(
             {
@@ -447,6 +452,7 @@ def register(mcp: MCPServer) -> None:
         if solver not in ("ac", "pf", "dc", "ldf"):
             raise ValueError(f"Unknown solver: {solver!r}")
         timestep_range = range(timestep_start, timestep_end + 1)
+        provenance = _resolve_provenance(model_ref)
         result = _run_qsts(
             system,
             solver,
@@ -456,6 +462,9 @@ def register(mcp: MCPServer) -> None:
             include_solar=include_solar,
             include_battery=include_battery,
             include_capacitor=include_capacitor,
+            model_id=provenance["model_id"],
+            model_version=provenance["model_version"],
+            model_hash=provenance["model_hash"],
         )
         return json.dumps(_serialize_qsts_summary(result), indent=2, default=str)
 
@@ -492,6 +501,7 @@ def register(mcp: MCPServer) -> None:
         )
         generators = build_dc_generators_from_components(system)
 
+        provenance = _resolve_provenance(model_ref)
         result = solve_multiperiod_dc_opf(
             system,
             generators=generators,
@@ -499,6 +509,9 @@ def register(mcp: MCPServer) -> None:
             battery_specs=battery_specs,
             ramp_limit_w=float(ramp_limit_w) if ramp_limit_w is not None else None,
             db_path=str(db_path) if db_path else None,
+            model_id=provenance["model_id"],
+            model_version=provenance["model_version"],
+            model_hash=provenance["model_hash"],
         )
         return json.dumps(
             _serialize_multiperiod_result(result), indent=2, default=str
