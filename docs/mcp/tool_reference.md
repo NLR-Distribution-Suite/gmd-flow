@@ -4,7 +4,7 @@ This page documents the tools exposed by `gdm-flow-mcp-server`.
 
 ## Solver And Matrix Tools
 
-## `opf_calculate_ybus`
+## `calculate_ybus`
 Build phase-domain Y-bus matrix metadata from a DistributionSystem JSON.
 
 Key inputs:
@@ -23,7 +23,7 @@ Returns:
 - Label mapping (`bus`, `phase`)
 - Optional top-left matrix preview
 
-## `opf_run_ac`
+## `run_ac_opf`
 Run AC OPF from component-derived specs.
 
 Key inputs:
@@ -41,7 +41,7 @@ Returns:
 - Source injection totals
 - Optional per-node voltage and injection details
 
-## `opf_run_dc`
+## `run_dc_opf`
 Run DC OPF from component-derived demand and generators.
 
 Key inputs:
@@ -58,7 +58,7 @@ Returns:
 - Slack injection and total dispatch
 - Optional generator dispatch, theta, nodal balance details
 
-## `opf_run_lindistflow`
+## `run_lindistflow`
 Run LinDistFlow using component-derived net injections.
 
 Key inputs:
@@ -72,7 +72,7 @@ Returns:
 - Voltage min/max and modeled counts
 - Optional node voltages and branch flows
 
-## `opf_compare_solvers`
+## `compare_solvers`
 Run AC OPF, DC OPF, and LinDistFlow and return side-by-side summary.
 
 Key inputs:
@@ -83,7 +83,7 @@ Returns:
 - Per-solver result blocks (`ac`, `dc`, `lindistflow`)
 - Summary block with quick comparison fields
 
-## `opf_export_sqlite`
+## `export_sqlite`
 Run selected solvers and export results to SQLite.
 
 Key inputs:
@@ -98,17 +98,17 @@ Returns:
 
 ## Documentation And API Tools
 
-## `list_opf_documentation`
+## `list_documentation`
 List documentation files under `docs/` (`.md`, `.ipynb`, excluding build artifacts).
 
-## `search_opf_documentation`
+## `search_documentation`
 Search docs text and return snippets.
 
 Key inputs:
 - `query` (required)
 - `max_results` (default `5`)
 
-## `get_opf_documentation_page`
+## `get_documentation_page`
 Read a docs page by path relative to `docs/`.
 
 Key inputs:
@@ -116,10 +116,10 @@ Key inputs:
 - `start_line` (default `1`)
 - `max_lines` (default `160`)
 
-## `list_opf_api_symbols`
+## `list_api_symbols`
 List public symbols exported by `gdm_flow.__all__`.
 
-## `get_opf_api_reference`
+## `get_api_reference`
 Get module, signature, and docstring for a public API symbol.
 
 Key inputs:

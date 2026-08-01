@@ -8,11 +8,30 @@ import pytest
 
 pytest.importorskip("mcp")
 
-from gdm_flow.mcp import server as mcp_server
+from mcp.server import MCPServer
+
+from gdm_flow.mcp.common import _get_system_path_arg
+from gdm_flow.mcp.server import create_server
+from gdm_flow.mcp.tools import knowledge, solvers
+
+# ---------------------------------------------------------------------------
+# Register tools on a shared MCPServer instance
+# ---------------------------------------------------------------------------
+
+_mcp = MCPServer("gdm-flow-test")
+solvers.register(_mcp)
+knowledge.register(_mcp)
+
+
+def _call(name: str, **kwargs) -> dict:
+    """Call a registered tool function directly and parse its JSON result."""
+    fn = _mcp._tool_manager._tools[name].fn
+    return json.loads(fn(**kwargs))
 
 
 def test_mcp_list_resources():
-    resources = asyncio.run(mcp_server.list_resources())
+    server = create_server()
+    resources = asyncio.run(server.list_resources())
     assert len(resources) == 2
 
     by_uri = {str(resource.uri): resource for resource in resources}
@@ -22,16 +41,17 @@ def test_mcp_list_resources():
 
 
 def test_mcp_read_resources():
+    server = create_server()
     for uri in ("gdm-flow://solvers", "gdm-flow://workflows"):
-        contents = asyncio.run(mcp_server.read_resource(mcp_server.AnyUrl(uri)))
+        contents = asyncio.run(server.read_resource(uri))
         assert len(contents) == 1
-        assert contents[0].uri == mcp_server.AnyUrl(uri)
-        data = json.loads(contents[0].text)
+        data = json.loads(contents[0].content)
         assert isinstance(data, list) and len(data) > 0
 
 
 def test_mcp_list_prompts():
-    prompts = asyncio.run(mcp_server.list_prompts())
+    server = create_server()
+    prompts = asyncio.run(server.list_prompts())
     assert len(prompts) == 3
 
     names = {prompt.name for prompt in prompts}
@@ -47,13 +67,14 @@ def test_mcp_list_prompts():
 
 
 def test_mcp_get_prompts():
+    server = create_server()
     for name in (
         "run_ac_pf_workflow",
         "run_qsts_workflow",
         "run_opf_workflow",
     ):
         result = asyncio.run(
-            mcp_server.get_prompt(name, {"system_path": "/tmp/system.json"})
+            server.get_prompt(name, {"system_path": "/tmp/system.json"})
         )
         assert len(result.messages) == 1
         message = result.messages[0]
@@ -64,71 +85,56 @@ def test_mcp_get_prompts():
 
 
 def test_mcp_list_tools_includes_documentation_tools():
-    tools = asyncio.run(mcp_server.list_tools())
+    server = create_server()
+    tools = asyncio.run(server.list_tools())
     tool_names = {tool.name for tool in tools}
 
-    assert "opf_calculate_ybus" in tool_names
-    assert "opf_run_ac" in tool_names
-    assert "list_opf_documentation" in tool_names
-    assert "search_opf_documentation" in tool_names
-    assert "get_opf_documentation_page" in tool_names
-    assert "list_opf_api_symbols" in tool_names
-    assert "get_opf_api_reference" in tool_names
+    assert "calculate_ybus" in tool_names
+    assert "run_ac_opf" in tool_names
+    assert "list_documentation" in tool_names
+    assert "search_documentation" in tool_names
+    assert "get_documentation_page" in tool_names
+    assert "list_api_symbols" in tool_names
+    assert "get_api_reference" in tool_names
 
     # Newly added time-series / solver tools
-    assert "opf_run_ac_pf" in tool_names
-    assert "opf_run_qsts" in tool_names
-    assert "opf_run_multiperiod" in tool_names
-    assert "opf_plot_ts" in tool_names
+    assert "run_ac_pf" in tool_names
+    assert "run_qsts" in tool_names
+    assert "run_multiperiod" in tool_names
+    assert "plot_ts" in tool_names
 
 
 def test_mcp_documentation_tools_smoke():
-    listing = asyncio.run(mcp_server._handle_list_opf_documentation({}))
+    listing = _call("list_documentation")
     assert listing["count"] > 0
     assert "intro.md" in listing["files"]
 
-    search = asyncio.run(
-        mcp_server._handle_search_opf_documentation(
-            {
-                "query": "AC OPF",
-                "max_results": 3,
-            }
-        )
-    )
+    search = _call("search_documentation", query="AC OPF", max_results=3)
     assert search["count"] >= 1
 
-    page = asyncio.run(
-        mcp_server._handle_get_opf_documentation_page(
-            {
-                "doc_path": "intro.md",
-                "start_line": 1,
-                "max_lines": 20,
-            }
-        )
+    page = _call(
+        "get_documentation_page",
+        doc_path="intro.md",
+        start_line=1,
+        max_lines=20,
     )
     assert page["path"] == "intro.md"
     assert "GDM-Flow" in page["content"]
 
 
 def test_mcp_api_reference_tools_smoke():
-    symbol_listing = asyncio.run(mcp_server._handle_list_opf_api_symbols({}))
+    symbol_listing = _call("list_api_symbols")
     assert symbol_listing["count"] > 0
     assert "calculate_ybus" in symbol_listing["symbols"]
 
-    api_ref = asyncio.run(
-        mcp_server._handle_get_opf_api_reference(
-            {
-                "symbol_name": "calculate_ybus",
-            }
-        )
-    )
+    api_ref = _call("get_api_reference", symbol_name="calculate_ybus")
     assert api_ref["symbol"] == "calculate_ybus"
     assert api_ref["module"].startswith("gdm_flow")
     assert api_ref["signature"] is not None
 
 
 def test_get_system_path_arg_accepts_direct_model_ref_path():
-    path = mcp_server._get_system_path_arg({"model_ref": {"path": "/tmp/model.json"}})
+    path = _get_system_path_arg(model_ref={"path": "/tmp/model.json"})
     assert path == "/tmp/model.json"
 
 
@@ -151,8 +157,8 @@ def test_get_system_path_arg_resolves_registry_model_ref(tmp_path):
 
     os.environ["DIST_STACK_MODEL_REGISTRY_DB"] = str(db_path)
     try:
-        path = mcp_server._get_system_path_arg(
-            {"model_ref": {"model_id": "opf123", "version": 2}}
+        path = _get_system_path_arg(
+            model_ref={"model_id": "opf123", "version": 2}
         )
     finally:
         os.environ.pop("DIST_STACK_MODEL_REGISTRY_DB", None)
@@ -176,8 +182,8 @@ def test_get_system_path_arg_resolves_library_registered_model(tmp_path):
 
     os.environ["DIST_STACK_MODEL_REGISTRY_DB"] = str(db_path)
     try:
-        path = mcp_server._get_system_path_arg(
-            {"model_ref": {"model_id": "lib123", "version": 1}}
+        path = _get_system_path_arg(
+            model_ref={"model_id": "lib123", "version": 1}
         )
     finally:
         os.environ.pop("DIST_STACK_MODEL_REGISTRY_DB", None)
@@ -190,14 +196,11 @@ def test_mcp_run_ac_pf(tmp_path, system):
     system_path = tmp_path / "system.json"
     system.to_json(str(system_path))
 
-    result = asyncio.run(
-        mcp_server._handle_run_ac_pf(
-            {
-                "system_path": str(system_path),
-                "max_iterations": 100,
-                "tolerance": 1e-6,
-            }
-        )
+    result = _call(
+        "run_ac_pf",
+        system_path=str(system_path),
+        max_iterations=100,
+        tolerance=1e-6,
     )
 
     assert result["success"] is True
@@ -217,15 +220,12 @@ def test_mcp_run_qsts(tmp_path, system):
     system_path = tmp_path / "system.json"
     system.to_json(str(system_path))
 
-    result = asyncio.run(
-        mcp_server._handle_run_qsts(
-            {
-                "system_path": str(system_path),
-                "solver": "ldf",
-                "timestep_start": 0,
-                "timestep_end": 2,
-            }
-        )
+    result = _call(
+        "run_qsts",
+        system_path=str(system_path),
+        solver="ldf",
+        timestep_start=0,
+        timestep_end=2,
     )
 
     assert result["solver"] == "ldf"
@@ -240,14 +240,11 @@ def test_mcp_run_multiperiod(tmp_path, system):
     system_path = tmp_path / "system.json"
     system.to_json(str(system_path))
 
-    result = asyncio.run(
-        mcp_server._handle_run_multiperiod(
-            {
-                "system_path": str(system_path),
-                "timestep_start": 0,
-                "timestep_end": 2,
-            }
-        )
+    result = _call(
+        "run_multiperiod",
+        system_path=str(system_path),
+        timestep_start=0,
+        timestep_end=2,
     )
 
     assert result["success"] is True
@@ -267,27 +264,21 @@ def test_mcp_plot_ts(tmp_path, system):
     system.to_json(str(system_path))
     db_path = tmp_path / "qsts.db"
 
-    qsts = asyncio.run(
-        mcp_server._handle_run_qsts(
-            {
-                "system_path": str(system_path),
-                "solver": "ldf",
-                "timestep_start": 0,
-                "timestep_end": 2,
-                "db_path": str(db_path),
-            }
-        )
+    qsts = _call(
+        "run_qsts",
+        system_path=str(system_path),
+        solver="ldf",
+        timestep_start=0,
+        timestep_end=2,
+        db_path=str(db_path),
     )
     assert qsts["db_path"] == str(db_path)
     assert qsts["run_id"] is not None
 
-    result = asyncio.run(
-        mcp_server._handle_plot_ts(
-            {
-                "db_path": str(db_path),
-                "run_id": qsts["run_id"],
-            }
-        )
+    result = _call(
+        "plot_ts",
+        db_path=str(db_path),
+        run_id=qsts["run_id"],
     )
     assert result["message"]
     assert Path(result["output_path"]).exists()
