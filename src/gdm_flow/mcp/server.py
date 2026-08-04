@@ -960,7 +960,9 @@ async def _handle_run_powerflow(args: dict[str, Any]) -> dict[str, Any]:
             slack_label=args.get("slack_label"),
             include_neutral=bool(args.get("include_neutral", False)),
             include_shunt=bool(args.get("include_shunt", False)),
-            convert_geometry_to_matrix=bool(args.get("convert_geometry_to_matrix", True)),
+            convert_geometry_to_matrix=bool(
+                args.get("convert_geometry_to_matrix", True)
+            ),
             max_iterations=int(args.get("max_iterations", 100)),
             tolerance=float(args.get("tolerance", 1e-6)),
         )
