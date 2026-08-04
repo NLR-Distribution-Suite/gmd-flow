@@ -29,8 +29,15 @@ from gdm_flow import (
     calculate_ybus,
     export_all_results_to_sqlite,
     optimize_ac_power_flow_from_components,
+    solve_ac_power_flow_from_components,
     solve_dc_opf_from_components,
     solve_lindistflow,
+)
+from gdm_flow.sqlite_export import (
+    export_ac_opf_result_to_sqlite,
+    export_ac_pf_result_to_sqlite,
+    export_dc_opf_result_to_sqlite,
+    export_lindistflow_result_to_sqlite,
 )
 import gdm_flow as gdm_flow_api
 from gdm_flow.mcp import __version__
@@ -306,6 +313,38 @@ def _serialize_lindistflow_result(result: Any, include_details: bool) -> dict[st
     return payload
 
 
+def _serialize_ac_pf_result(result: Any, *, include_details: bool) -> dict[str, Any]:
+    voltage_mag = np.abs(result.voltage)
+    source_totals = _source_bus_totals(
+        result.ybus_result.index_to_label, result.power_injection
+    )
+    payload: dict[str, Any] = {
+        "success": True,
+        "message": str(result.message),
+        "converged": bool(result.success),
+        "iterations": int(result.iterations),
+        "max_mismatch_pu": float(result.max_mismatch_pu),
+        "voltage_min_v": float(np.min(voltage_mag)) if voltage_mag.size else 0.0,
+        "voltage_max_v": float(np.max(voltage_mag)) if voltage_mag.size else 0.0,
+        "source_injection": source_totals,
+        "slack_bus": str(source_totals.get("source_bus", "")),
+    }
+    if include_details:
+        payload["nodes"] = [
+            {
+                "bus": bus,
+                "phase": phase,
+                "voltage_mag_v": float(np.abs(result.voltage[idx])),
+                "voltage_pu": float(result.voltage_pu[idx]),
+                "voltage_angle_rad": float(np.angle(result.voltage[idx])),
+                "p_injection_w": float(result.power_injection[idx].real),
+                "q_injection_var": float(result.power_injection[idx].imag),
+            }
+            for idx, (bus, phase) in enumerate(result.ybus_result.index_to_label)
+        ]
+    return payload
+
+
 async def _handle_list_tools(ctx, params: ListToolsRequest) -> ListToolsResult:
     """List available GDM-Flow MCP tools."""
     return ListToolsResult(
@@ -388,6 +427,10 @@ async def _handle_list_tools(ctx, params: ListToolsRequest) -> ListToolsResult:
                             "description": "Include per-node solved values",
                             "default": False,
                         },
+                        "db_path": {
+                            "type": "string",
+                            "description": "Optional SQLite DB path to export this AC OPF result",
+                        },
                     },
                     "required": [],
                 },
@@ -438,6 +481,54 @@ async def _handle_list_tools(ctx, params: ListToolsRequest) -> ListToolsResult:
                             "description": "Include generator dispatch and nodal details",
                             "default": False,
                         },
+                        "db_path": {
+                            "type": "string",
+                            "description": "Optional SQLite DB path to export this DC OPF result",
+                        },
+                    },
+                    "required": [],
+                },
+            ),
+            Tool(
+                name="opf_run_powerflow",
+                description="Run Newton-Raphson AC power flow (fixed P/Q injections), distinct from AC OPF optimization.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "system_path": {
+                            "type": "string",
+                            "description": "Path to system JSON file",
+                        },
+                        "model_ref": {
+                            "type": "object",
+                            "description": "Optional model reference ({model_id/version} or direct stored_path/path)",
+                        },
+                        "include_loads": {"type": "boolean", "default": True},
+                        "include_solar": {"type": "boolean", "default": True},
+                        "include_battery": {"type": "boolean", "default": False},
+                        "include_capacitor": {"type": "boolean", "default": True},
+                        "load_scale": {"type": "number", "default": 1.0},
+                        "solar_scale": {"type": "number", "default": 1.0},
+                        "battery_scale": {"type": "number", "default": 1.0},
+                        "capacitor_scale": {"type": "number", "default": 1.0},
+                        "slack_label": {"type": "string"},
+                        "include_neutral": {"type": "boolean", "default": False},
+                        "include_shunt": {"type": "boolean", "default": False},
+                        "convert_geometry_to_matrix": {
+                            "type": "boolean",
+                            "default": True,
+                        },
+                        "max_iterations": {"type": "integer", "default": 100},
+                        "tolerance": {"type": "number", "default": 1e-6},
+                        "include_details": {
+                            "type": "boolean",
+                            "description": "Include per-node solved values",
+                            "default": False,
+                        },
+                        "db_path": {
+                            "type": "string",
+                            "description": "If set, also export this power-flow result to a SQLite DB",
+                        },
                     },
                     "required": [],
                 },
@@ -466,6 +557,10 @@ async def _handle_list_tools(ctx, params: ListToolsRequest) -> ListToolsResult:
                             "type": "boolean",
                             "description": "Include per-node and per-branch outputs",
                             "default": False,
+                        },
+                        "db_path": {
+                            "type": "string",
+                            "description": "Optional SQLite DB path to export this LinDistFlow result",
                         },
                     },
                     "required": [],
@@ -513,6 +608,7 @@ async def _handle_list_tools(ctx, params: ListToolsRequest) -> ListToolsResult:
                             "description": "Output SQLite database path",
                         },
                         "run_ac": {"type": "boolean", "default": True},
+                        "run_pf": {"type": "boolean", "default": False},
                         "run_dc": {"type": "boolean", "default": True},
                         "run_lindistflow": {"type": "boolean", "default": True},
                     },
@@ -659,6 +755,7 @@ _TOOL_HANDLERS: dict[str, Any] = {
     "opf_calculate_ybus": lambda args: _handle_calculate_ybus(args),
     "opf_run_ac": lambda args: _handle_run_ac(args),
     "opf_run_dc": lambda args: _handle_run_dc(args),
+    "opf_run_powerflow": lambda args: _handle_run_powerflow(args),
     "opf_run_lindistflow": lambda args: _handle_run_lindistflow(args),
     "opf_compare_solvers": lambda args: _handle_compare_solvers(args),
     "opf_export_sqlite": lambda args: _handle_export_sqlite(args),
@@ -741,9 +838,15 @@ async def _handle_run_ac(args: dict[str, Any]) -> dict[str, Any]:
         vm_max_pu=float(args.get("vm_max_pu", 1.05)),
         max_nfev=int(args.get("max_nfev", 300)),
     )
-    return _serialize_ac_result(
+    response = _serialize_ac_result(
         result, include_details=bool(args.get("include_details", False))
     )
+    db_path = args.get("db_path")
+    if isinstance(db_path, str) and db_path.strip():
+        run_id = export_ac_opf_result_to_sqlite(result, str(Path(db_path)))
+        response["db_path"] = str(Path(db_path))
+        response["run_id"] = run_id
+    return response
 
 
 async def _handle_run_dc(args: dict[str, Any]) -> dict[str, Any]:
@@ -763,9 +866,49 @@ async def _handle_run_dc(args: dict[str, Any]) -> dict[str, Any]:
         theta_penalty=float(args.get("theta_penalty", 1e-6)),
         maxiter=int(args.get("maxiter", 500)),
     )
-    return _serialize_dc_result(
+    response = _serialize_dc_result(
         result, include_details=bool(args.get("include_details", False))
     )
+    db_path = args.get("db_path")
+    if isinstance(db_path, str) and db_path.strip():
+        run_id = export_dc_opf_result_to_sqlite(result, str(Path(db_path)))
+        response["db_path"] = str(Path(db_path))
+        response["run_id"] = run_id
+    return response
+
+
+async def _handle_run_powerflow(args: dict[str, Any]) -> dict[str, Any]:
+    try:
+        system = _load_system(_get_system_path_arg(args))
+        result = solve_ac_power_flow_from_components(
+            system,
+            include_loads=bool(args.get("include_loads", True)),
+            include_solar=bool(args.get("include_solar", True)),
+            include_battery=bool(args.get("include_battery", False)),
+            include_capacitor=bool(args.get("include_capacitor", True)),
+            load_scale=float(args.get("load_scale", 1.0)),
+            solar_scale=float(args.get("solar_scale", 1.0)),
+            battery_scale=float(args.get("battery_scale", 1.0)),
+            capacitor_scale=float(args.get("capacitor_scale", 1.0)),
+            slack_label=args.get("slack_label"),
+            include_neutral=bool(args.get("include_neutral", False)),
+            include_shunt=bool(args.get("include_shunt", False)),
+            convert_geometry_to_matrix=bool(args.get("convert_geometry_to_matrix", True)),
+            max_iterations=int(args.get("max_iterations", 100)),
+            tolerance=float(args.get("tolerance", 1e-6)),
+        )
+        response = _serialize_ac_pf_result(
+            result,
+            include_details=bool(args.get("include_details", False)),
+        )
+        db_path = args.get("db_path")
+        if isinstance(db_path, str) and db_path.strip():
+            run_id = export_ac_pf_result_to_sqlite(result, str(Path(db_path)))
+            response["db_path"] = str(Path(db_path))
+            response["run_id"] = run_id
+        return response
+    except Exception as exc:
+        return {"success": False, "error": str(exc)}
 
 
 async def _handle_run_lindistflow(args: dict[str, Any]) -> dict[str, Any]:
@@ -784,10 +927,16 @@ async def _handle_run_lindistflow(args: dict[str, Any]) -> dict[str, Any]:
         include_neutral=bool(args.get("include_neutral", False)),
         include_open_switches=bool(args.get("include_open_switches", False)),
     )
-    return _serialize_lindistflow_result(
+    response = _serialize_lindistflow_result(
         result,
         include_details=bool(args.get("include_details", False)),
     )
+    db_path = args.get("db_path")
+    if isinstance(db_path, str) and db_path.strip():
+        run_id = export_lindistflow_result_to_sqlite(result, str(Path(db_path)))
+        response["db_path"] = str(Path(db_path))
+        response["run_id"] = run_id
+    return response
 
 
 async def _handle_compare_solvers(args: dict[str, Any]) -> dict[str, Any]:
@@ -822,19 +971,24 @@ async def _handle_export_sqlite(args: dict[str, Any]) -> dict[str, Any]:
     db_path = str(Path(args["db_path"]))
 
     run_ac = bool(args.get("run_ac", True))
+    run_pf = bool(args.get("run_pf", False))
     run_dc = bool(args.get("run_dc", True))
     run_lindistflow = bool(args.get("run_lindistflow", True))
 
-    if not any([run_ac, run_dc, run_lindistflow]):
-        raise ValueError("At least one of run_ac, run_dc, run_lindistflow must be true")
+    if not any([run_ac, run_pf, run_dc, run_lindistflow]):
+        raise ValueError(
+            "At least one of run_ac, run_pf, run_dc, run_lindistflow must be true"
+        )
 
     ac_result = optimize_ac_power_flow_from_components(system) if run_ac else None
+    pf_result = solve_ac_power_flow_from_components(system) if run_pf else None
     dc_result = solve_dc_opf_from_components(system) if run_dc else None
     ldf_result = solve_lindistflow(system) if run_lindistflow else None
 
     run_ids = export_all_results_to_sqlite(
         db_path,
         ac_result=ac_result,
+        pf_result=pf_result,
         dc_result=dc_result,
         lindistflow_result=ldf_result,
     )
@@ -843,6 +997,7 @@ async def _handle_export_sqlite(args: dict[str, Any]) -> dict[str, Any]:
         "run_ids": run_ids,
         "exported": {
             "ac": run_ac,
+            "pf": run_pf,
             "dc": run_dc,
             "lindistflow": run_lindistflow,
         },
