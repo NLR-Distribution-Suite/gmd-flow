@@ -42,6 +42,14 @@ from gdm_flow.sqlite_export import (
 import gdm_flow as gdm_flow_api
 from gdm_flow.mcp import __version__
 
+try:  # Optional dist-stack provenance integration
+    from dist_stack.runstore import attach_artifact, create_run
+    from dist_stack.manifest import write_manifest
+
+    _RUNSTORE_AVAILABLE = True
+except ImportError:  # pragma: no cover - optional dependency
+    _RUNSTORE_AVAILABLE = False
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("gdm_flow_mcp")
 
@@ -343,6 +351,49 @@ def _serialize_ac_pf_result(result: Any, *, include_details: bool) -> dict[str, 
             for idx, (bus, phase) in enumerate(result.ybus_result.index_to_label)
         ]
     return payload
+
+
+def _record_gdm_flow_run(
+    *,
+    tool: str,
+    model_id: str | None,
+    tool_version: str | None,
+    export_path: str | None,
+) -> str | None:
+    if not _RUNSTORE_AVAILABLE:
+        return None
+
+    runstore_db = os.getenv("DIST_STACK_RUNSTORE_DB")
+    if not runstore_db:
+        return None
+
+    try:
+        rec = create_run(
+            tool,
+            run_type="gdm_flow_run",
+            status="succeeded",
+            model_id=model_id,
+            tool_version=tool_version,
+            runstore_db=runstore_db,
+        )
+        run_id = rec.run_id
+
+        if isinstance(export_path, str) and export_path.strip():
+            export_abs = os.path.abspath(export_path)
+            if os.path.exists(export_abs):
+                write_manifest(
+                    export_abs,
+                    artifact_type="artifact",
+                    tool=tool,
+                    tool_version=tool_version,
+                    derived_from=[run_id],
+                    config={"run_id": run_id},
+                )
+                attach_artifact(run_id, export_abs, runstore_db=runstore_db)
+
+        return run_id
+    except Exception:
+        return None
 
 
 async def _handle_list_tools(ctx, params: ListToolsRequest) -> ListToolsResult:
@@ -846,6 +897,14 @@ async def _handle_run_ac(args: dict[str, Any]) -> dict[str, Any]:
         run_id = export_ac_opf_result_to_sqlite(result, str(Path(db_path)))
         response["db_path"] = str(Path(db_path))
         response["run_id"] = run_id
+    model_ref = args.get("model_ref")
+    model_id = model_ref.get("model_id") if isinstance(model_ref, dict) else None
+    response["runstore_run_id"] = _record_gdm_flow_run(
+        tool="opf_run_ac",
+        model_id=model_id,
+        tool_version=__version__,
+        export_path=args.get("db_path"),
+    )
     return response
 
 
@@ -874,6 +933,14 @@ async def _handle_run_dc(args: dict[str, Any]) -> dict[str, Any]:
         run_id = export_dc_opf_result_to_sqlite(result, str(Path(db_path)))
         response["db_path"] = str(Path(db_path))
         response["run_id"] = run_id
+    model_ref = args.get("model_ref")
+    model_id = model_ref.get("model_id") if isinstance(model_ref, dict) else None
+    response["runstore_run_id"] = _record_gdm_flow_run(
+        tool="opf_run_dc",
+        model_id=model_id,
+        tool_version=__version__,
+        export_path=args.get("db_path"),
+    )
     return response
 
 
@@ -906,6 +973,14 @@ async def _handle_run_powerflow(args: dict[str, Any]) -> dict[str, Any]:
             run_id = export_ac_pf_result_to_sqlite(result, str(Path(db_path)))
             response["db_path"] = str(Path(db_path))
             response["run_id"] = run_id
+        model_ref = args.get("model_ref")
+        model_id = model_ref.get("model_id") if isinstance(model_ref, dict) else None
+        response["runstore_run_id"] = _record_gdm_flow_run(
+            tool="opf_run_powerflow",
+            model_id=model_id,
+            tool_version=__version__,
+            export_path=args.get("db_path"),
+        )
         return response
     except Exception as exc:
         return {"success": False, "error": str(exc)}
@@ -936,6 +1011,14 @@ async def _handle_run_lindistflow(args: dict[str, Any]) -> dict[str, Any]:
         run_id = export_lindistflow_result_to_sqlite(result, str(Path(db_path)))
         response["db_path"] = str(Path(db_path))
         response["run_id"] = run_id
+    model_ref = args.get("model_ref")
+    model_id = model_ref.get("model_id") if isinstance(model_ref, dict) else None
+    response["runstore_run_id"] = _record_gdm_flow_run(
+        tool="opf_run_lindistflow",
+        model_id=model_id,
+        tool_version=__version__,
+        export_path=args.get("db_path"),
+    )
     return response
 
 
